@@ -8,7 +8,7 @@
     "documentation":  "https://github.com/42bios/apc-rack-power",
     "issue_tracker":  "https://github.com/42bios/apc-rack-power/issues",
     "iot_class":  "local_polling",
-    "version":  "0.1.0",
+    "version":  "0.1.1",
     "requirements":  [
                          "puresnmp\u003e=2.0.0,\u003c3.0.0"
                      ]
