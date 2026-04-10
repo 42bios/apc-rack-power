@@ -48,3 +48,7 @@ Home Assistant custom integration for APC UPS and Rack PDU devices via SNMP.
 
 ## Support
 - Issues: https://github.com/42bios/apc-rack-power/issues
+- Releases: https://github.com/42bios/apc-rack-power/releases
+
+## License
+MIT - see [LICENSE](LICENSE).
