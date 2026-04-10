@@ -3,9 +3,6 @@
   "country": "DE",
   "homeassistant": "2025.1",
   "render_readme": true,
-  "filename": "custom_components/apc_enterprise/manifest.json",
-  "domains": [
-    "apc_enterprise"
-  ]
+  "filename": "custom_components/apc_enterprise/manifest.json"
 }
 
