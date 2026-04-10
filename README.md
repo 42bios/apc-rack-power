@@ -3,7 +3,6 @@
 [![CI](https://github.com/42bios/apc-rack-power/actions/workflows/ci.yml/badge.svg)](https://github.com/42bios/apc-rack-power/actions/workflows/ci.yml)
 ![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange)
 [![Release](https://img.shields.io/github/v/release/42bios/apc-rack-power)](https://github.com/42bios/apc-rack-power/releases)
-[![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Home Assistant custom integration for APC UPS and Rack PDU devices via SNMP.
 
