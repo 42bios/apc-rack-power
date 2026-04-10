@@ -22,11 +22,22 @@ Home Assistant custom integration for APC UPS and Rack PDU devices via SNMP.
 - APC External Battery Pack XBP48RM1U2-LI (connected to SRT3000UXI-NCLI)
 - APC Switched Rack PDU AP8959EU3
 
-## Installation
-1. Add this repository URL in HACS as an `Integration` repository.
-2. Install `APC Rack Power` from HACS.
-3. Restart Home Assistant.
-4. Add the integration via `Settings -> Devices & Services`.
+## HACS Installation (Recommended)
+
+[![Open your Home Assistant instance and open the APC Rack Power repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=42bios&repository=apc-rack-power&category=integration)
+
+1. Open HACS in Home Assistant.
+2. Go to `Integrations`.
+3. Open menu (three dots) -> `Custom repositories`.
+4. Repository URL: `https://github.com/42bios/apc-rack-power`
+5. Category: `Integration`
+6. Install `APC Rack Power` and restart Home Assistant.
+7. Add integration in `Settings -> Devices & Services -> Add Integration`.
+
+## Manual Installation
+1. Copy `custom_components/apc_enterprise` into your Home Assistant config folder.
+2. Restart Home Assistant.
+3. Add integration in `Settings -> Devices & Services -> Add Integration`.
 
 ## Repository Layout
 - `custom_components/apc_enterprise` - integration source
