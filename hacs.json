@@ -1,0 +1,11 @@
+{
+  "name": "APC Rack Power",
+  "country": "DE",
+  "domain": "apc_enterprise",
+  "homeassistant": "2025.1",
+  "render_readme": true,
+  "filename": "custom_components/apc_enterprise/manifest.json",
+  "iot_class": "local_polling",
+  "version": "0.1.0"
+}
+

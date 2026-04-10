@@ -1,0 +1,97 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "APC Rack Power device",
+        "description": "Connect via SNMP v2c.",
+        "data": {
+          "host": "Host / IP",
+          "name": "Name",
+          "community": "Read community",
+          "write_community": "Write community",
+          "port": "SNMP port",
+          "scan_interval": "Scan interval (s)",
+          "timeout": "Timeout (s)",
+          "retries": "Retries",
+          "custom_oids": "Custom OIDs (key=oid, one per line)",
+          "pdu_nominal_watts": "PDU nominal watts (for %->W)",
+          "temperature_scale": "Temperature scale"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to device via SNMP"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "APC Rack Power options",
+        "data": {
+          "scan_interval": "Scan interval (s)",
+          "timeout": "Timeout (s)",
+          "retries": "Retries",
+          "custom_oids": "Custom OIDs (key=oid, one per line)",
+          "pdu_nominal_watts": "PDU nominal watts (for %->W)",
+          "temperature_scale": "Temperature scale"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "sys_name": { "name": "System Name" },
+      "sys_descr": { "name": "System Description" },
+      "apc_model_number": { "name": "Model Number" },
+      "sys_uptime_ticks": { "name": "System Uptime" },
+      "ups_ident_model": { "name": "UPS Model" },
+      "ups_sku": { "name": "UPS SKU" },
+      "ups_ident_name": { "name": "UPS Name" },
+      "ups_battery_status": { "name": "Battery Status" },
+      "ups_seconds_on_battery": { "name": "Seconds On Battery" },
+      "ups_minutes_remaining": { "name": "Minutes Remaining" },
+      "ups_charge_remaining": { "name": "Charge Remaining" },
+      "ups_battery_voltage": { "name": "Battery Voltage" },
+      "ups_battery_current": { "name": "Battery Current" },
+      "ups_battery_temp": { "name": "Battery Temperature" },
+      "ups_input_line_bads": { "name": "Input Line Bads" },
+      "ups_input_frequency": { "name": "Input Frequency" },
+      "ups_input_voltage": { "name": "Input Voltage" },
+      "ups_output_source": { "name": "Output Source" },
+      "ups_output_frequency": { "name": "Output Frequency" },
+      "ups_output_voltage": { "name": "Output Voltage" },
+      "ups_output_current": { "name": "Output Current" },
+      "ups_output_load": { "name": "Output Load" },
+      "ups_alarms_present": { "name": "Alarms Present" },
+      "ups_test_result": { "name": "Self Test Result" },
+      "pdu_device_num_outlets": { "name": "PDU Outlet Count" },
+      "pdu_device_load": { "name": "PDU Load" },
+      "pdu_device_load_percent": { "name": "PDU Load (%)" },
+      "pdu_device_power": { "name": "PDU Power" },
+      "pdu_energy_kwh": { "name": "PDU Energy" },
+      "pdu_peak_power_kw": { "name": "PDU Peak Power" },
+      "pdu_phase_voltage": { "name": "PDU Phase Voltage" },
+      "pdu_phase_current": { "name": "PDU Phase Current" },
+      "pdu_phase_power_kw": { "name": "PDU Power" },
+      "pdu_power_factor": { "name": "PDU Power Factor" },
+      "pdu_peak_current": { "name": "PDU Peak Current" },
+      "pdu_env_temperature": { "name": "PDU Temperature" },
+      "pdu_env_humidity": { "name": "PDU Humidity" },
+      "pdu_name": { "name": "PDU Name" },
+      "pdu_location": { "name": "PDU Location" },
+      "pdu_model_number": { "name": "PDU Model Number" },
+      "pdu_serial_number": { "name": "PDU Serial Number" },
+      "pdu_contact": { "name": "PDU Contact" },
+      "pdu_firmware_rpdu": { "name": "Rack PDU Firmware" },
+      "pdu_firmware_bootmon": { "name": "Boot Monitor Firmware" },
+      "pdu_nps_status": { "name": "PDU NPS Status" },
+      "pdu_load_watts": { "name": "PDU Load (Watts)" },
+      "pdu_bank_count": { "name": "PDU Bank Count" },
+      "pdu_current_raw": { "name": "PDU Current Raw" },
+      "pdu_power_raw": { "name": "PDU Power Raw" },
+      "custom_metric": { "name": "Custom Metric" },
+      "discovered_controls": { "name": "Discovered Controls" }
+    }
+  }
+}
+

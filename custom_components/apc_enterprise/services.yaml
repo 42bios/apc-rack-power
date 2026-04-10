@@ -1,0 +1,39 @@
+set_oid:
+  name: Set SNMP OID
+  description: Write an integer value to any writable APC OID.
+  fields:
+    entry_id:
+      required: true
+      selector:
+        text:
+    oid:
+      required: true
+      selector:
+        text:
+    value:
+      required: true
+      selector:
+        number:
+          mode: box
+
+control_action:
+  name: Control outlet/group
+  description: Execute on, off or cycle for a discovered control point.
+  fields:
+    entry_id:
+      required: true
+      selector:
+        text:
+    control_uid:
+      required: true
+      selector:
+        text:
+    action:
+      required: true
+      selector:
+        select:
+          options:
+            - "on"
+            - "off"
+            - "cycle"
+

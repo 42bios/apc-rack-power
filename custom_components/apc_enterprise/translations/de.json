@@ -1,0 +1,97 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "APC Rack Power Gerät",
+        "description": "Verbindung über SNMP v2c.",
+        "data": {
+          "host": "Host / IP",
+          "name": "Name",
+          "community": "Read Community",
+          "write_community": "Write Community",
+          "port": "SNMP Port",
+          "scan_interval": "Abfrageintervall (s)",
+          "timeout": "Timeout (s)",
+          "retries": "Wiederholungen",
+          "custom_oids": "Eigene OIDs (key=oid, je Zeile eine)",
+          "pdu_nominal_watts": "PDU Nennleistung Watt (fuer %->W)",
+          "temperature_scale": "Temperaturskala"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "SNMP-Verbindung zum Gerät fehlgeschlagen"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "APC Rack Power Optionen",
+        "data": {
+          "scan_interval": "Abfrageintervall (s)",
+          "timeout": "Timeout (s)",
+          "retries": "Wiederholungen",
+          "custom_oids": "Eigene OIDs (key=oid, je Zeile eine)",
+          "pdu_nominal_watts": "PDU Nennleistung Watt (fuer %->W)",
+          "temperature_scale": "Temperaturskala"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "sys_name": { "name": "Systemname" },
+      "sys_descr": { "name": "Systembeschreibung" },
+      "apc_model_number": { "name": "Modellnummer" },
+      "sys_uptime_ticks": { "name": "Systemlaufzeit" },
+      "ups_ident_model": { "name": "USV Modell" },
+      "ups_sku": { "name": "USV SKU" },
+      "ups_ident_name": { "name": "USV Name" },
+      "ups_battery_status": { "name": "Batteriestatus" },
+      "ups_seconds_on_battery": { "name": "Sekunden auf Batterie" },
+      "ups_minutes_remaining": { "name": "Minuten Restlaufzeit" },
+      "ups_charge_remaining": { "name": "Ladezustand" },
+      "ups_battery_voltage": { "name": "Batteriespannung" },
+      "ups_battery_current": { "name": "Batteriestrom" },
+      "ups_battery_temp": { "name": "Batterietemperatur" },
+      "ups_input_line_bads": { "name": "Eingangsfehler" },
+      "ups_input_frequency": { "name": "Eingangsfrequenz" },
+      "ups_input_voltage": { "name": "Eingangsspannung" },
+      "ups_output_source": { "name": "Ausgangsquelle" },
+      "ups_output_frequency": { "name": "Ausgangsfrequenz" },
+      "ups_output_voltage": { "name": "Ausgangsspannung" },
+      "ups_output_current": { "name": "Ausgangsstrom" },
+      "ups_output_load": { "name": "Ausgangslast" },
+      "ups_alarms_present": { "name": "Alarme vorhanden" },
+      "ups_test_result": { "name": "Selbsttest Ergebnis" },
+      "pdu_device_num_outlets": { "name": "PDU Steckdosen Anzahl" },
+      "pdu_device_load": { "name": "PDU Last" },
+      "pdu_device_load_percent": { "name": "PDU Last (%)" },
+      "pdu_device_power": { "name": "PDU Leistung" },
+      "pdu_energy_kwh": { "name": "PDU Energie" },
+      "pdu_peak_power_kw": { "name": "PDU Spitzenleistung" },
+      "pdu_phase_voltage": { "name": "PDU Phasenspannung" },
+      "pdu_phase_current": { "name": "PDU Phasenstrom" },
+      "pdu_phase_power_kw": { "name": "PDU Leistung" },
+      "pdu_power_factor": { "name": "PDU Leistungsfaktor" },
+      "pdu_peak_current": { "name": "PDU Spitzenstrom" },
+      "pdu_env_temperature": { "name": "PDU Temperatur" },
+      "pdu_env_humidity": { "name": "PDU Luftfeuchte" },
+      "pdu_name": { "name": "PDU Name" },
+      "pdu_location": { "name": "PDU Standort" },
+      "pdu_model_number": { "name": "PDU Modellnummer" },
+      "pdu_serial_number": { "name": "PDU Seriennummer" },
+      "pdu_contact": { "name": "PDU Kontakt" },
+      "pdu_firmware_rpdu": { "name": "Rack PDU Firmware" },
+      "pdu_firmware_bootmon": { "name": "Boot-Monitor Firmware" },
+      "pdu_nps_status": { "name": "PDU NPS Status" },
+      "pdu_load_watts": { "name": "PDU Last (Watt)" },
+      "pdu_bank_count": { "name": "PDU Bank Anzahl" },
+      "pdu_current_raw": { "name": "PDU Strom Rohwert" },
+      "pdu_power_raw": { "name": "PDU Leistung Rohwert" },
+      "custom_metric": { "name": "Eigene Metrik" },
+      "discovered_controls": { "name": "Gefundene Schaltpunkte" }
+    }
+  }
+}
+
