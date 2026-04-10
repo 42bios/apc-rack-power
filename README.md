@@ -6,7 +6,7 @@
 
 Home Assistant custom integration for APC UPS and Rack PDU devices via SNMP.
 
-<img src="https://raw.githubusercontent.com/42bios/apc-rack-power/main/custom_components/apc_enterprise/brand/logo.png" alt="APC Rack Power Logo" width="220">
+<img src="https://raw.githubusercontent.com/42bios/apc-rack-power/main/custom_components/apc_enterprise/brand/logo.png" alt="APC Rack Power Logo" width="160">
 
 ## Highlights
 - Auto-detect APC device type (UPS vs PDU)
