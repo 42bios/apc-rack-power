@@ -1,4 +1,4 @@
-﻿# APC Rack Power
+# APC Rack Power
 
 [![CI](https://github.com/42bios/apc-rack-power/actions/workflows/ci.yml/badge.svg)](https://github.com/42bios/apc-rack-power/actions/workflows/ci.yml)
 [![HACS](https://github.com/42bios/apc-rack-power/actions/workflows/hacs-validate.yml/badge.svg)](https://github.com/42bios/apc-rack-power/actions/workflows/hacs-validate.yml)

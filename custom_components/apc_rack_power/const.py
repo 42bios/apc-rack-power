@@ -1,4 +1,4 @@
-﻿"""Constants for APC Rack Power integration."""
+"""Constants for APC Rack Power integration."""
 
 from __future__ import annotations
 

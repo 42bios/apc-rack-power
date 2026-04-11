@@ -1,4 +1,4 @@
-﻿# APC Rack Power (Home Assistant Custom Integration)
+# APC Rack Power (Home Assistant Custom Integration)
 
 APC Rack Power integrates APC UPS and APC Rack PDU devices through SNMP.
 
