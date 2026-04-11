@@ -130,8 +130,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     options = dict(entry.options)
     data = dict(entry.data)
-    community = str(data.get(CONF_COMMUNITY, DEFAULT_COMMUNITY))
-    write_community = str(data.get(CONF_WRITE_COMMUNITY, community))
+    community = str(data.get(CONF_COMMUNITY, DEFAULT_COMMUNITY)).strip()
+    write_community = str(data.get(CONF_WRITE_COMMUNITY, "")).strip() or community
     scan_interval = int(options.get(CONF_SCAN_INTERVAL, data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)))
     timeout = int(options.get(CONF_TIMEOUT, data.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)))
     retries = int(options.get(CONF_RETRIES, data.get(CONF_RETRIES, DEFAULT_RETRIES)))

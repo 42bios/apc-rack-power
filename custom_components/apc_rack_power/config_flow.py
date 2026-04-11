@@ -131,7 +131,7 @@ class ApcEnterpriseConfigFlow(ConfigFlow, domain=DOMAIN):
                 host=host,
                 port=int(user_input[CONF_PORT]),
                 community=str(user_input[CONF_COMMUNITY]),
-                write_community=str(user_input[CONF_WRITE_COMMUNITY]),
+                write_community=str(user_input.get(CONF_WRITE_COMMUNITY, "")),
                 timeout=int(user_input[CONF_TIMEOUT]),
                 retries=int(user_input[CONF_RETRIES]),
             )
@@ -147,7 +147,7 @@ class ApcEnterpriseConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_HOST): str,
                 vol.Required(CONF_NAME, default=DEFAULT_NAME): str,
                 vol.Required(CONF_COMMUNITY, default=DEFAULT_COMMUNITY): str,
-                vol.Required(CONF_WRITE_COMMUNITY, default=DEFAULT_COMMUNITY): str,
+                vol.Optional(CONF_WRITE_COMMUNITY, default=""): str,
                 vol.Required(CONF_PORT, default=DEFAULT_PORT): vol.All(
                     vol.Coerce(int), vol.Range(min=1, max=65535)
                 ),
