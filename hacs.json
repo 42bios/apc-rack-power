@@ -1,8 +1,9 @@
-{
+﻿{
   "name": "APC Rack Power",
   "country": "DE",
   "homeassistant": "2025.1",
   "render_readme": true,
-  "filename": "custom_components/apc_enterprise/manifest.json"
+  "filename": "custom_components/apc_rack_power/manifest.json"
 }
+
 

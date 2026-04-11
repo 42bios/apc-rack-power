@@ -1,10 +1,10 @@
-"""Constants for APC Rack Power integration."""
+﻿"""Constants for APC Rack Power integration."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-DOMAIN = "apc_enterprise"
+DOMAIN = "apc_rack_power"
 
 CONF_COMMUNITY = "community"
 CONF_WRITE_COMMUNITY = "write_community"
@@ -142,4 +142,5 @@ CONTROL_TABLES: tuple[ControlTableDef, ...] = (
         control_oid=".1.3.6.1.4.1.318.1.1.1.12.2.3.1.3",
     ),
 )
+
 

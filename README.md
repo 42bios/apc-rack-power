@@ -1,4 +1,4 @@
-# APC Rack Power
+﻿# APC Rack Power
 
 [![CI](https://github.com/42bios/apc-rack-power/actions/workflows/ci.yml/badge.svg)](https://github.com/42bios/apc-rack-power/actions/workflows/ci.yml)
 [![HACS](https://github.com/42bios/apc-rack-power/actions/workflows/hacs-validate.yml/badge.svg)](https://github.com/42bios/apc-rack-power/actions/workflows/hacs-validate.yml)
@@ -8,7 +8,7 @@
 
 Home Assistant custom integration for APC UPS and Rack PDU devices via SNMP.
 
-<img src="https://raw.githubusercontent.com/42bios/apc-rack-power/main/custom_components/apc_enterprise/brand/logo.png" alt="APC Rack Power Logo" width="160">
+<img src="https://raw.githubusercontent.com/42bios/apc-rack-power/main/custom_components/apc_rack_power/brand/logo.png" alt="APC Rack Power Logo" width="160">
 
 ## Highlights
 - Auto-detect APC device type (UPS vs PDU)
@@ -36,12 +36,12 @@ Home Assistant custom integration for APC UPS and Rack PDU devices via SNMP.
 7. Add integration in `Settings -> Devices & Services -> Add Integration`.
 
 ## Manual Installation
-1. Copy `custom_components/apc_enterprise` into your Home Assistant config folder.
+1. Copy `custom_components/apc_rack_power` into your Home Assistant config folder.
 2. Restart Home Assistant.
 3. Add integration in `Settings -> Devices & Services -> Add Integration`.
 
 ## Repository Layout
-- `custom_components/apc_enterprise` - integration source
+- `custom_components/apc_rack_power` - integration source
 - `hacs.json` - HACS metadata
 - `.github/workflows/hacs-validate.yml` - HACS validation workflow
 - `.github/workflows/hassfest.yml` - Home Assistant hassfest checks
@@ -53,3 +53,4 @@ Home Assistant custom integration for APC UPS and Rack PDU devices via SNMP.
 
 ## License
 MIT - see [LICENSE](LICENSE).
+
