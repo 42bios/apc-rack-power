@@ -31,6 +31,7 @@ from .const import (
     DEFAULT_TIMEOUT,
     DOMAIN,
 )
+from .device_profile import DEVICE_UPS, detect_device_kind
 from .snmp_client import ApcSnmpClient, ApcSnmpError
 
 
@@ -70,39 +71,46 @@ class ApcEnterpriseOptionsFlow(config_entries.OptionsFlow):
 
         data = dict(self._entry.data)
         options = dict(self._entry.options)
-        schema = vol.Schema(
-            {
-                vol.Required(
-                    CONF_SCAN_INTERVAL,
-                    default=options.get(
-                        CONF_SCAN_INTERVAL, data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
-                    ),
-                ): vol.All(vol.Coerce(int), vol.Range(min=5, max=600)),
-                vol.Required(
-                    CONF_TIMEOUT,
-                    default=options.get(CONF_TIMEOUT, data.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)),
-                ): vol.All(vol.Coerce(int), vol.Range(min=1, max=30)),
-                vol.Required(
-                    CONF_RETRIES,
-                    default=options.get(CONF_RETRIES, data.get(CONF_RETRIES, DEFAULT_RETRIES)),
-                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=10)),
-                vol.Optional(
-                    CONF_CUSTOM_OIDS,
-                    default=options.get(CONF_CUSTOM_OIDS, data.get(CONF_CUSTOM_OIDS, "")),
-                ): str,
+        schema_fields: dict[Any, Any] = {
+            vol.Required(
+                CONF_SCAN_INTERVAL,
+                default=options.get(
+                    CONF_SCAN_INTERVAL, data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+                ),
+            ): vol.All(vol.Coerce(int), vol.Range(min=5, max=600)),
+            vol.Required(
+                CONF_TIMEOUT,
+                default=options.get(CONF_TIMEOUT, data.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)),
+            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=30)),
+            vol.Required(
+                CONF_RETRIES,
+                default=options.get(CONF_RETRIES, data.get(CONF_RETRIES, DEFAULT_RETRIES)),
+            ): vol.All(vol.Coerce(int), vol.Range(min=0, max=10)),
+            vol.Optional(
+                CONF_CUSTOM_OIDS,
+                default=options.get(CONF_CUSTOM_OIDS, data.get(CONF_CUSTOM_OIDS, "")),
+            ): str,
+            vol.Required(
+                CONF_TEMP_SCALE,
+                default=options.get(CONF_TEMP_SCALE, data.get(CONF_TEMP_SCALE, DEFAULT_TEMP_SCALE)),
+            ): vol.In({"celsius": "celsius", "fahrenheit": "fahrenheit"}),
+        }
+
+        coordinator = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {}).get("coordinator")
+        metrics = coordinator.data.metrics if coordinator and coordinator.data else {}
+        device_kind = detect_device_kind(metrics)
+        if device_kind != DEVICE_UPS:
+            schema_fields[
                 vol.Required(
                     CONF_PDU_NOMINAL_WATTS,
                     default=options.get(
                         CONF_PDU_NOMINAL_WATTS,
                         data.get(CONF_PDU_NOMINAL_WATTS, DEFAULT_PDU_NOMINAL_WATTS),
                     ),
-                ): vol.All(vol.Coerce(int), vol.Range(min=0, max=200000)),
-                vol.Required(
-                    CONF_TEMP_SCALE,
-                    default=options.get(CONF_TEMP_SCALE, data.get(CONF_TEMP_SCALE, DEFAULT_TEMP_SCALE)),
-                ): vol.In({"celsius": "celsius", "fahrenheit": "fahrenheit"}),
-            }
-        )
+                )
+            ] = vol.All(vol.Coerce(int), vol.Range(min=0, max=200000))
+
+        schema = vol.Schema(schema_fields)
         return self.async_show_form(step_id="init", data_schema=schema)
 
 

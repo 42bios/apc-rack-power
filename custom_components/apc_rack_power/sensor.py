@@ -323,6 +323,9 @@ class ApcMetricSensor(ApcBaseSensor):
             return extract_model_number(self.coordinator.data.metrics)
         if self.entity_description.key == "pdu_load_watts":
             metrics = self.coordinator.data.metrics
+            phase_watts = metrics.get("pdu_phase_active_power_w")
+            if isinstance(phase_watts, (int, float)) and float(phase_watts) >= 0:
+                return float(phase_watts)
             load_percent = metrics.get("pdu_device_load_percent")
             nominal_watts = int(
                 self._entry.options.get(
@@ -332,9 +335,6 @@ class ApcMetricSensor(ApcBaseSensor):
             )
             if isinstance(load_percent, (int, float)) and float(load_percent) >= 0 and nominal_watts > 0:
                 return round((float(load_percent) / 100.0) * nominal_watts, 1)
-            phase_watts = metrics.get("pdu_phase_active_power_w")
-            if isinstance(phase_watts, (int, float)) and float(phase_watts) >= 0:
-                return float(phase_watts)
             return None
         if self.entity_description.key == "pdu_env_temperature":
             metrics = self.coordinator.data.metrics
