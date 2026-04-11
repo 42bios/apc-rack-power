@@ -6,6 +6,7 @@ APC Rack Power integrates APC UPS and APC Rack PDU devices through SNMP.
 - APC UPS devices with Network Management Card
 - APC Rack PDU devices (switched/metered)
 - Automatic device-type filtering (UPS entities on UPS, PDU entities on PDU)
+- SNMP v2c and SNMPv3 polling support
 
 ## Key Capabilities
 - UPS metrics (battery, runtime, input/output power data)

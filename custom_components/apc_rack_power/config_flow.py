@@ -18,8 +18,14 @@ from .const import (
     CONF_PORT,
     CONF_RETRIES,
     CONF_SCAN_INTERVAL,
+    CONF_SNMP_VERSION,
     CONF_TEMP_SCALE,
     CONF_TIMEOUT,
+    CONF_V3_AUTH_PASSPHRASE,
+    CONF_V3_AUTH_PROTOCOL,
+    CONF_V3_PRIV_PASSPHRASE,
+    CONF_V3_PRIV_PROTOCOL,
+    CONF_V3_USERNAME,
     CONF_WRITE_COMMUNITY,
     DEFAULT_COMMUNITY,
     DEFAULT_NAME,
@@ -27,8 +33,11 @@ from .const import (
     DEFAULT_PORT,
     DEFAULT_RETRIES,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_SNMP_VERSION,
     DEFAULT_TEMP_SCALE,
     DEFAULT_TIMEOUT,
+    DEFAULT_V3_AUTH_PROTOCOL,
+    DEFAULT_V3_PRIV_PROTOCOL,
     DOMAIN,
 )
 from .device_profile import DEVICE_UPS, detect_device_kind
@@ -43,6 +52,12 @@ async def _test_connection(
     write_community: str,
     timeout: int,
     retries: int,
+    snmp_version: str,
+    v3_username: str,
+    v3_auth_protocol: str,
+    v3_auth_passphrase: str,
+    v3_priv_protocol: str,
+    v3_priv_passphrase: str,
 ) -> bool:
     client = ApcSnmpClient(
         host=host,
@@ -51,12 +66,43 @@ async def _test_connection(
         port=port,
         timeout=timeout,
         retries=retries,
+        snmp_version=snmp_version,
+        v3_username=v3_username,
+        v3_auth_protocol=v3_auth_protocol,
+        v3_auth_passphrase=v3_auth_passphrase,
+        v3_priv_protocol=v3_priv_protocol,
+        v3_priv_passphrase=v3_priv_passphrase,
     )
     try:
         value = await client.get(".1.3.6.1.2.1.1.1.0")
     except ApcSnmpError:
         return False
     return value is not None
+
+
+def _validate_snmp_v3(user_input: dict[str, Any], errors: dict[str, str]) -> None:
+    """Validate SNMPv3 combinations."""
+    snmp_version = str(user_input.get(CONF_SNMP_VERSION, DEFAULT_SNMP_VERSION)).strip().lower()
+    if snmp_version != "v3":
+        return
+    username = str(user_input.get(CONF_V3_USERNAME, "")).strip()
+    auth_protocol = str(user_input.get(CONF_V3_AUTH_PROTOCOL, DEFAULT_V3_AUTH_PROTOCOL)).strip().lower()
+    auth_pass = str(user_input.get(CONF_V3_AUTH_PASSPHRASE, ""))
+    priv_protocol = str(user_input.get(CONF_V3_PRIV_PROTOCOL, DEFAULT_V3_PRIV_PROTOCOL)).strip().lower()
+    priv_pass = str(user_input.get(CONF_V3_PRIV_PASSPHRASE, ""))
+
+    if not username:
+        errors["base"] = "invalid_auth"
+        return
+    if auth_protocol != "none" and len(auth_pass) < 8:
+        errors["base"] = "invalid_auth"
+        return
+    if auth_protocol == "none" and priv_protocol != "none":
+        errors["base"] = "invalid_auth"
+        return
+    if priv_protocol != "none" and len(priv_pass) < 8:
+        errors["base"] = "invalid_auth"
+        return
 
 
 class ApcEnterpriseOptionsFlow(config_entries.OptionsFlow):
@@ -67,8 +113,14 @@ class ApcEnterpriseOptionsFlow(config_entries.OptionsFlow):
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         if user_input is not None:
+            errors: dict[str, str] = {}
+            _validate_snmp_v3(user_input, errors)
+            if errors:
+                return self.async_show_form(step_id="init", data_schema=self._build_schema(), errors=errors)
             return self.async_create_entry(title="", data=user_input)
+        return self.async_show_form(step_id="init", data_schema=self._build_schema())
 
+    def _build_schema(self) -> vol.Schema:
         data = dict(self._entry.data)
         options = dict(self._entry.options)
         schema_fields: dict[Any, Any] = {
@@ -91,6 +143,42 @@ class ApcEnterpriseOptionsFlow(config_entries.OptionsFlow):
                 default=options.get(CONF_CUSTOM_OIDS, data.get(CONF_CUSTOM_OIDS, "")),
             ): str,
             vol.Required(
+                CONF_SNMP_VERSION,
+                default=options.get(CONF_SNMP_VERSION, data.get(CONF_SNMP_VERSION, DEFAULT_SNMP_VERSION)),
+            ): vol.In({"v2c": "v2c", "v3": "v3"}),
+            vol.Required(
+                CONF_COMMUNITY,
+                default=options.get(CONF_COMMUNITY, data.get(CONF_COMMUNITY, DEFAULT_COMMUNITY)),
+            ): str,
+            vol.Optional(
+                CONF_WRITE_COMMUNITY,
+                default=options.get(CONF_WRITE_COMMUNITY, data.get(CONF_WRITE_COMMUNITY, "")),
+            ): str,
+            vol.Optional(
+                CONF_V3_USERNAME,
+                default=options.get(CONF_V3_USERNAME, data.get(CONF_V3_USERNAME, "")),
+            ): str,
+            vol.Required(
+                CONF_V3_AUTH_PROTOCOL,
+                default=options.get(
+                    CONF_V3_AUTH_PROTOCOL, data.get(CONF_V3_AUTH_PROTOCOL, DEFAULT_V3_AUTH_PROTOCOL)
+                ),
+            ): vol.In({"none": "none", "sha": "sha", "md5": "md5"}),
+            vol.Optional(
+                CONF_V3_AUTH_PASSPHRASE,
+                default=options.get(CONF_V3_AUTH_PASSPHRASE, data.get(CONF_V3_AUTH_PASSPHRASE, "")),
+            ): str,
+            vol.Required(
+                CONF_V3_PRIV_PROTOCOL,
+                default=options.get(
+                    CONF_V3_PRIV_PROTOCOL, data.get(CONF_V3_PRIV_PROTOCOL, DEFAULT_V3_PRIV_PROTOCOL)
+                ),
+            ): vol.In({"none": "none", "aes": "aes", "des": "des"}),
+            vol.Optional(
+                CONF_V3_PRIV_PASSPHRASE,
+                default=options.get(CONF_V3_PRIV_PASSPHRASE, data.get(CONF_V3_PRIV_PASSPHRASE, "")),
+            ): str,
+            vol.Required(
                 CONF_TEMP_SCALE,
                 default=options.get(CONF_TEMP_SCALE, data.get(CONF_TEMP_SCALE, DEFAULT_TEMP_SCALE)),
             ): vol.In({"celsius": "celsius", "fahrenheit": "fahrenheit"}),
@@ -110,8 +198,7 @@ class ApcEnterpriseOptionsFlow(config_entries.OptionsFlow):
                 )
             ] = vol.All(vol.Coerce(int), vol.Range(min=0, max=200000))
 
-        schema = vol.Schema(schema_fields)
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return vol.Schema(schema_fields)
 
 
 class ApcEnterpriseConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -122,6 +209,9 @@ class ApcEnterpriseConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
         errors: dict[str, str] = {}
         if user_input is not None:
+            _validate_snmp_v3(user_input, errors)
+            if errors:
+                return self.async_show_form(step_id="user", data_schema=self._build_user_schema(), errors=errors)
             host = str(user_input[CONF_HOST]).strip()
             await self.async_set_unique_id(host)
             self._abort_if_unique_id_configured()
@@ -134,6 +224,12 @@ class ApcEnterpriseConfigFlow(ConfigFlow, domain=DOMAIN):
                 write_community=str(user_input.get(CONF_WRITE_COMMUNITY, "")),
                 timeout=int(user_input[CONF_TIMEOUT]),
                 retries=int(user_input[CONF_RETRIES]),
+                snmp_version=str(user_input[CONF_SNMP_VERSION]),
+                v3_username=str(user_input.get(CONF_V3_USERNAME, "")),
+                v3_auth_protocol=str(user_input.get(CONF_V3_AUTH_PROTOCOL, DEFAULT_V3_AUTH_PROTOCOL)),
+                v3_auth_passphrase=str(user_input.get(CONF_V3_AUTH_PASSPHRASE, "")),
+                v3_priv_protocol=str(user_input.get(CONF_V3_PRIV_PROTOCOL, DEFAULT_V3_PRIV_PROTOCOL)),
+                v3_priv_passphrase=str(user_input.get(CONF_V3_PRIV_PASSPHRASE, "")),
             )
             if ok:
                 return self.async_create_entry(
@@ -142,12 +238,28 @@ class ApcEnterpriseConfigFlow(ConfigFlow, domain=DOMAIN):
                 )
             errors["base"] = "cannot_connect"
 
-        schema = vol.Schema(
+        schema = self._build_user_schema()
+        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+
+    def _build_user_schema(self) -> vol.Schema:
+        return vol.Schema(
             {
                 vol.Required(CONF_HOST): str,
                 vol.Required(CONF_NAME, default=DEFAULT_NAME): str,
+                vol.Required(CONF_SNMP_VERSION, default=DEFAULT_SNMP_VERSION): vol.In(
+                    {"v2c": "v2c", "v3": "v3"}
+                ),
                 vol.Required(CONF_COMMUNITY, default=DEFAULT_COMMUNITY): str,
                 vol.Optional(CONF_WRITE_COMMUNITY, default=""): str,
+                vol.Optional(CONF_V3_USERNAME, default=""): str,
+                vol.Required(CONF_V3_AUTH_PROTOCOL, default=DEFAULT_V3_AUTH_PROTOCOL): vol.In(
+                    {"none": "none", "sha": "sha", "md5": "md5"}
+                ),
+                vol.Optional(CONF_V3_AUTH_PASSPHRASE, default=""): str,
+                vol.Required(CONF_V3_PRIV_PROTOCOL, default=DEFAULT_V3_PRIV_PROTOCOL): vol.In(
+                    {"none": "none", "aes": "aes", "des": "des"}
+                ),
+                vol.Optional(CONF_V3_PRIV_PASSPHRASE, default=""): str,
                 vol.Required(CONF_PORT, default=DEFAULT_PORT): vol.All(
                     vol.Coerce(int), vol.Range(min=1, max=65535)
                 ),
@@ -169,7 +281,6 @@ class ApcEnterpriseConfigFlow(ConfigFlow, domain=DOMAIN):
                 ),
             }
         )
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
 
     @staticmethod
     def async_get_options_flow(config_entry: ConfigEntry) -> ApcEnterpriseOptionsFlow:

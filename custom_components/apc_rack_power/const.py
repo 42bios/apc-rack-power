@@ -8,6 +8,12 @@ DOMAIN = "apc_rack_power"
 
 CONF_COMMUNITY = "community"
 CONF_WRITE_COMMUNITY = "write_community"
+CONF_SNMP_VERSION = "snmp_version"
+CONF_V3_USERNAME = "v3_username"
+CONF_V3_AUTH_PROTOCOL = "v3_auth_protocol"
+CONF_V3_AUTH_PASSPHRASE = "v3_auth_passphrase"
+CONF_V3_PRIV_PROTOCOL = "v3_priv_protocol"
+CONF_V3_PRIV_PASSPHRASE = "v3_priv_passphrase"
 CONF_PORT = "port"
 CONF_SCAN_INTERVAL = "scan_interval"
 CONF_TIMEOUT = "timeout"
@@ -23,6 +29,9 @@ DEFAULT_SCAN_INTERVAL = 30
 DEFAULT_TIMEOUT = 3
 DEFAULT_RETRIES = 1
 DEFAULT_COMMUNITY = "public"
+DEFAULT_SNMP_VERSION = "v2c"
+DEFAULT_V3_AUTH_PROTOCOL = "none"
+DEFAULT_V3_PRIV_PROTOCOL = "none"
 DEFAULT_PDU_NOMINAL_WATTS = 0
 DEFAULT_TEMP_SCALE = "celsius"
 

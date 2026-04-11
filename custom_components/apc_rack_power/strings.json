@@ -7,8 +7,14 @@
         "data": {
           "host": "Host / IP",
           "name": "Name",
+          "snmp_version": "SNMP version",
           "community": "Read community",
           "write_community": "Write community",
+          "v3_username": "SNMPv3 username",
+          "v3_auth_protocol": "SNMPv3 auth protocol",
+          "v3_auth_passphrase": "SNMPv3 auth passphrase",
+          "v3_priv_protocol": "SNMPv3 privacy protocol",
+          "v3_priv_passphrase": "SNMPv3 privacy passphrase",
           "port": "SNMP port",
           "scan_interval": "Scan interval (s)",
           "timeout": "Timeout (s)",
@@ -20,7 +26,8 @@
       }
     },
     "error": {
-      "cannot_connect": "Cannot connect to device via SNMP"
+      "cannot_connect": "Cannot connect to device via SNMP",
+      "invalid_auth": "Invalid SNMPv3 authentication/privacy configuration"
     }
   },
   "options": {
@@ -32,6 +39,14 @@
           "timeout": "Timeout (s)",
           "retries": "Retries",
           "custom_oids": "Custom OIDs (key=oid, one per line)",
+          "snmp_version": "SNMP version",
+          "community": "Read community",
+          "write_community": "Write community",
+          "v3_username": "SNMPv3 username",
+          "v3_auth_protocol": "SNMPv3 auth protocol",
+          "v3_auth_passphrase": "SNMPv3 auth passphrase",
+          "v3_priv_protocol": "SNMPv3 privacy protocol",
+          "v3_priv_passphrase": "SNMPv3 privacy passphrase",
           "pdu_nominal_watts": "PDU nominal watts (for %->W)",
           "temperature_scale": "Temperature scale"
         }

@@ -18,10 +18,17 @@ from .const import (
     CONF_PORT,
     CONF_RETRIES,
     CONF_SCAN_INTERVAL,
+    CONF_SNMP_VERSION,
     CONF_TIMEOUT,
+    CONF_V3_AUTH_PASSPHRASE,
+    CONF_V3_AUTH_PROTOCOL,
+    CONF_V3_PRIV_PASSPHRASE,
+    CONF_V3_PRIV_PROTOCOL,
+    CONF_V3_USERNAME,
     CONF_WRITE_COMMUNITY,
     DEFAULT_COMMUNITY,
     DEFAULT_NAME,
+    DEFAULT_SNMP_VERSION,
     DEFAULT_PORT,
     DEFAULT_RETRIES,
     DEFAULT_SCAN_INTERVAL,
@@ -130,8 +137,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     options = dict(entry.options)
     data = dict(entry.data)
-    community = str(data.get(CONF_COMMUNITY, DEFAULT_COMMUNITY)).strip()
-    write_community = str(data.get(CONF_WRITE_COMMUNITY, "")).strip() or community
+    snmp_version = str(options.get(CONF_SNMP_VERSION, data.get(CONF_SNMP_VERSION, DEFAULT_SNMP_VERSION))).strip()
+    community = str(options.get(CONF_COMMUNITY, data.get(CONF_COMMUNITY, DEFAULT_COMMUNITY))).strip()
+    write_community = (
+        str(options.get(CONF_WRITE_COMMUNITY, data.get(CONF_WRITE_COMMUNITY, ""))).strip() or community
+    )
+    v3_username = str(options.get(CONF_V3_USERNAME, data.get(CONF_V3_USERNAME, ""))).strip()
+    v3_auth_protocol = str(
+        options.get(CONF_V3_AUTH_PROTOCOL, data.get(CONF_V3_AUTH_PROTOCOL, "none"))
+    ).strip()
+    v3_auth_passphrase = str(
+        options.get(CONF_V3_AUTH_PASSPHRASE, data.get(CONF_V3_AUTH_PASSPHRASE, ""))
+    )
+    v3_priv_protocol = str(
+        options.get(CONF_V3_PRIV_PROTOCOL, data.get(CONF_V3_PRIV_PROTOCOL, "none"))
+    ).strip()
+    v3_priv_passphrase = str(
+        options.get(CONF_V3_PRIV_PASSPHRASE, data.get(CONF_V3_PRIV_PASSPHRASE, ""))
+    )
     scan_interval = int(options.get(CONF_SCAN_INTERVAL, data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)))
     timeout = int(options.get(CONF_TIMEOUT, data.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)))
     retries = int(options.get(CONF_RETRIES, data.get(CONF_RETRIES, DEFAULT_RETRIES)))
@@ -144,6 +167,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         port=int(data.get(CONF_PORT, DEFAULT_PORT)),
         timeout=timeout,
         retries=retries,
+        snmp_version=snmp_version,
+        v3_username=v3_username,
+        v3_auth_protocol=v3_auth_protocol,
+        v3_auth_passphrase=v3_auth_passphrase,
+        v3_priv_protocol=v3_priv_protocol,
+        v3_priv_passphrase=v3_priv_passphrase,
     )
     coordinator = ApcEnterpriseCoordinator(
         hass=hass,

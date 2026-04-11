@@ -6,7 +6,7 @@
 ![HACS Custom](https://img.shields.io/badge/HACS-Custom-orange)
 [![Release](https://img.shields.io/github/v/release/42bios/apc-rack-power)](https://github.com/42bios/apc-rack-power/releases)
 
-Home Assistant custom integration for APC UPS and Rack PDU devices via SNMP.
+Home Assistant custom integration for APC UPS and Rack PDU devices via SNMP (v2c/v3).
 
 <img src="https://raw.githubusercontent.com/42bios/apc-rack-power/main/custom_components/apc_rack_power/brand/logo.png" alt="APC Rack Power Logo" width="160">
 
@@ -17,6 +17,7 @@ Home Assistant custom integration for APC UPS and Rack PDU devices via SNMP.
 - Switching control for PDU outlets and UPS outlet groups (when supported)
 - Config flow and options flow (no YAML required)
 - Advanced custom OID polling support
+- SNMPv3 support (noAuthNoPriv, authNoPriv, authPriv)
 
 ## Tested Hardware
 - APC Smart-UPS SRT3000UXI-NCLI
