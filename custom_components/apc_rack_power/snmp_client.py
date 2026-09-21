@@ -6,7 +6,15 @@ import asyncio
 from dataclasses import dataclass
 from typing import Any
 
-from puresnmp import Auth, Priv, V1, V2C, V3, Client, PyWrapper  # type: ignore[import-untyped]
+from puresnmp import (  # type: ignore[import-untyped]
+    V1,
+    V2C,
+    V3,
+    Auth,
+    Client,
+    Priv,
+    PyWrapper,
+)
 from x690.types import Integer as XInteger  # type: ignore[import-untyped]
 
 
@@ -44,7 +52,7 @@ class ApcSnmpClient:
         if isinstance(value, bytes):
             try:
                 return value.decode("utf-8", errors="ignore")
-            except Exception:
+            except (UnicodeDecodeError, LookupError):
                 return repr(value)
         return value
 
@@ -54,7 +62,7 @@ class ApcSnmpClient:
         for _ in range(attempts):
             try:
                 return await coro_factory()
-            except Exception as err:
+            except Exception as err:  # noqa: BLE001 - puresnmp raises varied/undocumented errors; retried then wrapped below
                 last_err = err
         raise ApcSnmpError(str(last_err) if last_err else "SNMP operation failed")
 
@@ -97,7 +105,7 @@ class ApcSnmpClient:
                     lambda wrapper=wrapper: wrapper.get(normalized)
                 )
                 return self._normalize_value(value)
-            except Exception as err:
+            except ApcSnmpError as err:
                 raise ApcSnmpError(str(err)) from err
         last_err: Exception | None = None
         for mp_model in self._iter_models():
@@ -107,7 +115,7 @@ class ApcSnmpClient:
                     lambda wrapper=wrapper: wrapper.get(normalized)
                 )
                 return self._normalize_value(value)
-            except Exception as err:
+            except ApcSnmpError as err:
                 last_err = err
         raise ApcSnmpError(str(last_err) if last_err else "SNMP get failed")
 
@@ -120,7 +128,7 @@ class ApcSnmpClient:
                     lambda wrapper=wrapper: wrapper.set(normalized, XInteger(int(value)))
                 )
                 return
-            except Exception as err:
+            except ApcSnmpError as err:
                 raise ApcSnmpError(str(err)) from err
         last_err: Exception | None = None
         for mp_model in self._iter_models():
@@ -130,7 +138,7 @@ class ApcSnmpClient:
                     lambda wrapper=wrapper: wrapper.set(normalized, XInteger(int(value)))
                 )
                 return
-            except Exception as err:
+            except ApcSnmpError as err:
                 last_err = err
         raise ApcSnmpError(str(last_err) if last_err else "SNMP set failed")
 
@@ -156,7 +164,7 @@ class ApcSnmpClient:
 
                 await self._call_with_retries(_run_walk)
                 return output
-            except Exception as err:
+            except ApcSnmpError as err:
                 raise ApcSnmpError(str(err)) from err
         last_err: Exception | None = None
         for mp_model in self._iter_models():
@@ -179,7 +187,7 @@ class ApcSnmpClient:
 
                 await self._call_with_retries(_run_walk)
                 return output
-            except Exception as err:
+            except ApcSnmpError as err:
                 last_err = err
         raise ApcSnmpError(str(last_err) if last_err else "SNMP walk failed")
 
