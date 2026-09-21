@@ -18,9 +18,7 @@ def is_unavailable(value: Any) -> bool:
         return True
     if isinstance(value, (int, float)) and float(value) == -1:
         return True
-    if isinstance(value, str) and value.strip().lower() in {"unknown", "unbekannt", "not available"}:
-        return True
-    return False
+    return isinstance(value, str) and value.strip().lower() in {"unknown", "unbekannt", "not available"}
 
 
 def extract_model_number(metrics: dict[str, Any]) -> str | None:
