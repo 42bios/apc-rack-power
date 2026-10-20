@@ -4,20 +4,30 @@ from __future__ import annotations
 
 from typing import Any
 
+from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
 
 from . import RUNTIME_COORDINATOR
-from .const import DOMAIN
+from .const import (
+    CONF_COMMUNITY,
+    CONF_V3_AUTH_PASSPHRASE,
+    CONF_V3_PRIV_PASSPHRASE,
+    CONF_V3_USERNAME,
+    CONF_WRITE_COMMUNITY,
+    DOMAIN,
+)
 from .device_profile import detect_device_kind
 
-
-def _redact_host(host: str) -> str:
-    parts = host.split(".")
-    if len(parts) == 4:
-        return ".".join(parts[:3] + ["x"])
-    return "redacted"
+TO_REDACT = {
+    CONF_HOST,
+    CONF_COMMUNITY,
+    CONF_WRITE_COMMUNITY,
+    CONF_V3_USERNAME,
+    CONF_V3_AUTH_PASSPHRASE,
+    CONF_V3_PRIV_PASSPHRASE,
+}
 
 
 async def async_get_config_entry_diagnostics(
@@ -32,9 +42,9 @@ async def async_get_config_entry_diagnostics(
 
     return {
         "entry_id": entry.entry_id,
-        "host": _redact_host(str(entry.data.get(CONF_HOST, ""))),
         "name": entry.title,
-        "options": dict(entry.options),
+        "data": async_redact_data(dict(entry.data), TO_REDACT),
+        "options": async_redact_data(dict(entry.options), TO_REDACT),
         "device_kind": detect_device_kind(metrics),
         "metric_keys_with_values": sorted([key for key, value in metrics.items() if value is not None]),
         "control_count": len(controls),
