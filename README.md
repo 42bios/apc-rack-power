@@ -8,6 +8,10 @@
 
 Home Assistant custom integration for APC UPS and Rack PDU devices via SNMP (v2c/v3).
 
+If you find this project useful, you can support its development and testing by buying me a coffee.
+
+<a href="https://buymeacoffee.com/42bios"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy me a coffee" width="217" height="60"></a>
+
 <img src="https://raw.githubusercontent.com/42bios/apc-rack-power/main/custom_components/apc_rack_power/brand/logo.png" alt="APC Rack Power Logo" width="160">
 
 > **Disclaimer:** This is an unofficial, community-maintained integration and is not affiliated with, endorsed by, or supported by APC or Schneider Electric. All product names, logos, and brands are property of their respective owners and are used for identification purposes only.
