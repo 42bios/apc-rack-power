@@ -83,7 +83,6 @@ The design goal is simple:
 If you find this project useful, you can [buy me a coffee](https://buymeacoffee.com/42bios) to support development and testing.
 
 - Issues: https://github.com/42bios/apc-rack-power/issues
-- Releases: https://github.com/42bios/apc-rack-power/releases
 
 ## License
 MIT - see [LICENSE](LICENSE).
