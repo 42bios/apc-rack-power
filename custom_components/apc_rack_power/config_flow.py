@@ -76,9 +76,10 @@ def _select(options: list[str], key: str) -> SelectSelector:
 
 
 def _number(minimum: int, maximum: int, unit: str | None = None) -> NumberSelector:
-    return NumberSelector(
-        NumberSelectorConfig(min=minimum, max=maximum, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement=unit)
-    )
+    config = NumberSelectorConfig(min=minimum, max=maximum, step=1, mode=NumberSelectorMode.BOX)
+    if unit:
+        config["unit_of_measurement"] = unit
+    return NumberSelector(config)
 
 
 def _connection_schema(defaults: Mapping[str, Any], with_name: bool) -> vol.Schema:

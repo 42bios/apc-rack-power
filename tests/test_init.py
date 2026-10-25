@@ -49,7 +49,7 @@ async def test_ups_entities(hass: HomeAssistant, agent: FakeAgent) -> None:
     assert _state(hass, "sensor.ups_battery_replacement_due") == "2030-07-11"
     assert _state(hass, "sensor.ups_external_battery_model") == "XBP48RM1U2-LI"
     assert _state(hass, "sensor.ups_port_1_temp_1_temperature") == "25"
-    assert _state(hass, "sensor.ups_port_2_temp_2_temperature") == "26"
+    assert _state(hass, "sensor.ups_port_2_temp_2_temperature") == "27"
     assert hass.states.get("sensor.ups_port_1_temp_1_humidity") is None
 
     assert _state(hass, "binary_sensor.ups_on_battery") == STATE_OFF

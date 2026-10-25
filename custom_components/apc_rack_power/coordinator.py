@@ -106,8 +106,8 @@ def _scale(raw: Any, scale: float, precision: int | None) -> Any:
     value = raw * scale
     if precision is not None:
         value = round(value, precision)
-        if precision == 0:
-            value = int(value)
+    if precision == 0 or (precision is None and float(value).is_integer()):
+        return int(value)
     return value
 
 
