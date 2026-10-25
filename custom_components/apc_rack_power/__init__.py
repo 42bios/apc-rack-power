@@ -1,50 +1,61 @@
-"""Initialize APC Rack Power integration."""
+"""The APC Rack Power integration."""
 
 from __future__ import annotations
 
 import logging
 
-import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant, ServiceCall
-from homeassistant.helpers import config_validation as cv
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import config_validation as cv, issue_registry as ir
 from homeassistant.helpers.service import async_register_admin_service
+from homeassistant.helpers.typing import ConfigType
+import voluptuous as vol
 
 from .const import (
     CONF_COMMUNITY,
     CONF_CUSTOM_OIDS,
-    CONF_NAME,
     CONF_PORT,
     CONF_RETRIES,
     CONF_SCAN_INTERVAL,
     CONF_SNMP_VERSION,
     CONF_TIMEOUT,
+    CONF_TRAP_COMMUNITY,
+    CONF_TRAP_ENABLED,
+    CONF_TRAP_PORT,
     CONF_V3_AUTH_PASSPHRASE,
     CONF_V3_AUTH_PROTOCOL,
     CONF_V3_PRIV_PASSPHRASE,
     CONF_V3_PRIV_PROTOCOL,
     CONF_V3_USERNAME,
     CONF_WRITE_COMMUNITY,
+    CONNECTION_KEYS,
     DEFAULT_COMMUNITY,
-    DEFAULT_NAME,
     DEFAULT_PORT,
     DEFAULT_RETRIES,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_SNMP_VERSION,
     DEFAULT_TIMEOUT,
+    DEFAULT_TRAP_COMMUNITY,
+    DEFAULT_TRAP_PORT,
     DOMAIN,
+    LEGACY_OPTION_KEYS,
     PLATFORMS,
+    POLLING_KEYS,
     SERVICE_CONTROL_ACTION,
     SERVICE_SET_OID,
     MetricDef,
 )
-from .coordinator import ApcEnterpriseCoordinator
-from .snmp_client import ApcSnmpClient, ApcSnmpError
+from .coordinator import ApcCoordinator
+from .snmp_client import ApcSnmpClient, SnmpCredentials
+from .traps import async_register_trap_handler
 
 _LOGGER = logging.getLogger(__name__)
 
-RUNTIME_COORDINATOR = "coordinator"
+type ApcConfigEntry = ConfigEntry[ApcCoordinator]
+
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 SET_OID_SCHEMA = vol.Schema(
     {
@@ -63,144 +74,162 @@ CONTROL_ACTION_SCHEMA = vol.Schema(
 )
 
 
-def _parse_custom_oids(raw: str | None) -> list[MetricDef]:
-    """Parse custom OID mappings from options."""
-    if not raw:
-        return []
+def parse_custom_oids(raw: str | None) -> list[MetricDef]:
+    """Parse "key=oid" lines from the options."""
     defs: list[MetricDef] = []
-    for line in raw.splitlines():
+    for line in (raw or "").splitlines():
         cleaned = line.strip()
-        if not cleaned or cleaned.startswith("#"):
-            continue
-        if "=" not in cleaned:
+        if not cleaned or cleaned.startswith("#") or "=" not in cleaned:
             continue
         key, oid = cleaned.split("=", 1)
         metric_key = key.strip().lower().replace(" ", "_")
         metric_oid = oid.strip()
-        if not metric_key or not metric_oid:
-            continue
-        defs.append(MetricDef(metric_key, metric_oid))
+        if metric_key and metric_oid:
+            defs.append(MetricDef(metric_key, ((metric_oid, 1.0),), allow_negative=True))
     return defs
 
 
-async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    await hass.config_entries.async_reload(entry.entry_id)
+def credentials_from(data: dict) -> SnmpCredentials:
+    """Build SNMP credentials from entry data or flow input."""
+    return SnmpCredentials(
+        version=str(data.get(CONF_SNMP_VERSION, DEFAULT_SNMP_VERSION)),
+        community=str(data.get(CONF_COMMUNITY, DEFAULT_COMMUNITY) or ""),
+        write_community=str(data.get(CONF_WRITE_COMMUNITY, "") or ""),
+        v3_username=str(data.get(CONF_V3_USERNAME, "") or ""),
+        v3_auth_protocol=str(data.get(CONF_V3_AUTH_PROTOCOL, "none") or "none"),
+        v3_auth_passphrase=str(data.get(CONF_V3_AUTH_PASSPHRASE, "") or ""),
+        v3_priv_protocol=str(data.get(CONF_V3_PRIV_PROTOCOL, "none") or "none"),
+        v3_priv_passphrase=str(data.get(CONF_V3_PRIV_PASSPHRASE, "") or ""),
+    )
 
 
-def _get_entry(hass: HomeAssistant, entry_id: str) -> ConfigEntry | None:
-    for entry in hass.config_entries.async_entries(DOMAIN):
-        if entry.entry_id == entry_id:
-            return entry
-    return None
+def _get_coordinator(hass: HomeAssistant, entry_id: str) -> ApcCoordinator:
+    entry = hass.config_entries.async_get_entry(entry_id)
+    if entry is None or entry.domain != DOMAIN or not hasattr(entry, "runtime_data"):
+        raise ServiceValidationError(
+            translation_domain=DOMAIN,
+            translation_key="unknown_entry",
+            translation_placeholders={"entry_id": entry_id},
+        )
+    return entry.runtime_data
 
 
-def _get_runtime_coordinator(hass: HomeAssistant, entry_id: str) -> ApcEnterpriseCoordinator | None:
-    runtime = hass.data.get(DOMAIN, {}).get(entry_id)
-    if not runtime:
-        return None
-    return runtime.get(RUNTIME_COORDINATOR)
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the services."""
 
-
-async def _setup_services(hass: HomeAssistant) -> None:
     async def _handle_set_oid(call: ServiceCall) -> None:
-        coordinator = _get_runtime_coordinator(hass, call.data["entry_id"])
-        if coordinator is None:
-            raise ApcSnmpError("Unknown entry_id")
-        await coordinator.async_set_oid(call.data["oid"], int(call.data["value"]))
+        coordinator = _get_coordinator(hass, call.data["entry_id"])
+        await coordinator.async_write(call.data["oid"], int(call.data["value"]))
 
     async def _handle_control_action(call: ServiceCall) -> None:
-        coordinator = _get_runtime_coordinator(hass, call.data["entry_id"])
-        if coordinator is None:
-            raise ApcSnmpError("Unknown entry_id")
+        coordinator = _get_coordinator(hass, call.data["entry_id"])
         uid = call.data["control_uid"]
+        control = next((item for item in coordinator.controls if item.uid == uid), None)
+        if control is None:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="unknown_control",
+                translation_placeholders={"control_uid": uid},
+            )
         action = call.data["action"]
-        target = next((control for control in coordinator.controls if control.uid == uid), None)
-        if target is None:
-            raise ApcSnmpError(f"Unknown control_uid: {uid}")
-        if action == "cycle":
-            await coordinator.async_cycle_control(target)
-            return
-        await coordinator.async_set_control(target, state=(action == "on"))
+        await coordinator.async_control(control, "reboot" if action == "cycle" else action)
 
     async_register_admin_service(hass, DOMAIN, SERVICE_SET_OID, _handle_set_oid, SET_OID_SCHEMA)
-    async_register_admin_service(
-        hass, DOMAIN, SERVICE_CONTROL_ACTION, _handle_control_action, CONTROL_ACTION_SCHEMA
-    )
+    async_register_admin_service(hass, DOMAIN, SERVICE_CONTROL_ACTION, _handle_control_action, CONTROL_ACTION_SCHEMA)
+    return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up APC Rack Power entry."""
-    hass.data.setdefault(DOMAIN, {})
-    if not hass.data[DOMAIN].get("services_ready"):
-        await _setup_services(hass)
-        hass.data[DOMAIN]["services_ready"] = True
+async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+    """Move credentials from options into data (1.1 -> 1.2)."""
+    if entry.version > 1:
+        return False
+    if entry.version == 1 and entry.minor_version < 2:
+        data = dict(entry.data)
+        options = dict(entry.options)
+        for key in CONNECTION_KEYS:
+            if key in options:
+                data[key] = options.pop(key)
+        for key in POLLING_KEYS:
+            if key in data:
+                options.setdefault(key, data.pop(key))
+        for key in LEGACY_OPTION_KEYS:
+            data.pop(key, None)
+            options.pop(key, None)
+        hass.config_entries.async_update_entry(entry, data=data, options=options, minor_version=2)
+        _LOGGER.debug("Migrated %s to version 1.2", entry.title)
+    return True
 
-    options = dict(entry.options)
+
+async def async_setup_entry(hass: HomeAssistant, entry: ApcConfigEntry) -> bool:
+    """Set up one APC device."""
     data = dict(entry.data)
-    snmp_version = str(options.get(CONF_SNMP_VERSION, data.get(CONF_SNMP_VERSION, DEFAULT_SNMP_VERSION))).strip()
-    community = str(options.get(CONF_COMMUNITY, data.get(CONF_COMMUNITY, DEFAULT_COMMUNITY))).strip()
-    write_community = (
-        str(options.get(CONF_WRITE_COMMUNITY, data.get(CONF_WRITE_COMMUNITY, ""))).strip() or community
-    )
-    v3_username = str(options.get(CONF_V3_USERNAME, data.get(CONF_V3_USERNAME, ""))).strip()
-    v3_auth_protocol = str(
-        options.get(CONF_V3_AUTH_PROTOCOL, data.get(CONF_V3_AUTH_PROTOCOL, "none"))
-    ).strip()
-    v3_auth_passphrase = str(
-        options.get(CONF_V3_AUTH_PASSPHRASE, data.get(CONF_V3_AUTH_PASSPHRASE, ""))
-    )
-    v3_priv_protocol = str(
-        options.get(CONF_V3_PRIV_PROTOCOL, data.get(CONF_V3_PRIV_PROTOCOL, "none"))
-    ).strip()
-    v3_priv_passphrase = str(
-        options.get(CONF_V3_PRIV_PASSPHRASE, data.get(CONF_V3_PRIV_PASSPHRASE, ""))
-    )
-    scan_interval = int(options.get(CONF_SCAN_INTERVAL, data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)))
-    timeout = int(options.get(CONF_TIMEOUT, data.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)))
-    retries = int(options.get(CONF_RETRIES, data.get(CONF_RETRIES, DEFAULT_RETRIES)))
-    custom_oids = str(options.get(CONF_CUSTOM_OIDS, data.get(CONF_CUSTOM_OIDS, "")))
+    options = dict(entry.options)
 
-    snmp = ApcSnmpClient(
+    client = await ApcSnmpClient.async_create(
+        hass,
         host=str(data[CONF_HOST]),
-        community=community,
-        write_community=write_community,
         port=int(data.get(CONF_PORT, DEFAULT_PORT)),
-        timeout=timeout,
-        retries=retries,
-        snmp_version=snmp_version,
-        v3_username=v3_username,
-        v3_auth_protocol=v3_auth_protocol,
-        v3_auth_passphrase=v3_auth_passphrase,
-        v3_priv_protocol=v3_priv_protocol,
-        v3_priv_passphrase=v3_priv_passphrase,
+        timeout=int(options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)),
+        retries=int(options.get(CONF_RETRIES, DEFAULT_RETRIES)),
+        credentials=credentials_from(data),
     )
-    coordinator = ApcEnterpriseCoordinator(
-        hass=hass,
-        entry_id=entry.entry_id,
-        name=str(data.get(CONF_NAME, DEFAULT_NAME)),
-        snmp_client=snmp,
-        scan_interval=scan_interval,
-        custom_metrics=_parse_custom_oids(custom_oids),
+    coordinator = ApcCoordinator(
+        hass,
+        entry,
+        client,
+        scan_interval=int(options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)),
+        custom_metrics=parse_custom_oids(options.get(CONF_CUSTOM_OIDS)),
     )
     await coordinator.async_config_entry_first_refresh()
+    entry.runtime_data = coordinator
 
-    hass.data[DOMAIN][entry.entry_id] = {RUNTIME_COORDINATOR: coordinator}
+    await _async_setup_traps(hass, entry, coordinator)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Unload APC Rack Power entry."""
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    if unload_ok:
-        hass.data[DOMAIN].pop(entry.entry_id, None)
-        remaining = [item for item in hass.config_entries.async_entries(DOMAIN) if item.entry_id != entry.entry_id]
-        if not remaining:
-            if hass.services.has_service(DOMAIN, SERVICE_SET_OID):
-                hass.services.async_remove(DOMAIN, SERVICE_SET_OID)
-            if hass.services.has_service(DOMAIN, SERVICE_CONTROL_ACTION):
-                hass.services.async_remove(DOMAIN, SERVICE_CONTROL_ACTION)
-            hass.data[DOMAIN]["services_ready"] = False
-    return unload_ok
+async def _async_setup_traps(hass: HomeAssistant, entry: ApcConfigEntry, coordinator: ApcCoordinator) -> None:
+    issue_id = f"trap_port_{entry.entry_id}"
+    if not entry.options.get(CONF_TRAP_ENABLED, False):
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
+        return
+    port = int(entry.options.get(CONF_TRAP_PORT, DEFAULT_TRAP_PORT))
+    try:
+        unregister = await async_register_trap_handler(
+            hass,
+            entry.entry_id,
+            str(entry.data[CONF_HOST]),
+            port,
+            str(entry.options.get(CONF_TRAP_COMMUNITY, DEFAULT_TRAP_COMMUNITY)),
+            coordinator.handle_trap,
+        )
+    except OSError as err:
+        _LOGGER.warning("Cannot listen for SNMP traps on UDP port %s: %s", port, err)
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="trap_port",
+            translation_placeholders={"name": entry.title, "port": str(port), "error": str(err)},
+        )
+        return
+    ir.async_delete_issue(hass, DOMAIN, issue_id)
+    entry.async_on_unload(unregister)
 
+
+async def _async_update_listener(hass: HomeAssistant, entry: ApcConfigEntry) -> None:
+    await hass.config_entries.async_reload(entry.entry_id)
+
+
+async def async_unload_entry(hass: HomeAssistant, entry: ApcConfigEntry) -> bool:
+    """Unload an entry."""
+    return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ApcConfigEntry) -> None:
+    """Remove the repair issues of a deleted entry."""
+    for prefix in ("battery_replace", "write_failed", "trap_port"):
+        ir.async_delete_issue(hass, DOMAIN, f"{prefix}_{entry.entry_id}")

@@ -3,34 +3,77 @@
 from __future__ import annotations
 
 import asyncio
-import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
-from typing import Any
+import logging
+from typing import TYPE_CHECKING, Any
 
+from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import ConfigEntryAuthFailed, HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import BASE_METRICS, CONTROL_TABLES, ControlTableDef, MetricDef
-from .snmp_client import ApcSnmpClient, ApcSnmpError
+from .const import (
+    CONTROL_TABLES,
+    DEVICE_PDU,
+    DISCOVERY_EVERY,
+    DOMAIN,
+    EVENT_TRAP,
+    FLAG_REPLACE_BATTERY,
+    METRICS,
+    TABLES,
+    ControlTableDef,
+    MetricDef,
+)
+from .device_profile import (
+    detect_device_kind,
+    extract_model_number,
+    flag,
+    is_unavailable,
+    kind_matches,
+    parse_flags,
+)
+from .snmp_client import ApcSnmpAuthError, ApcSnmpClient, ApcSnmpError
+
+if TYPE_CHECKING:
+    from homeassistant.config_entries import ConfigEntry
+
+    from .traps import TrapInfo
 
 _LOGGER = logging.getLogger(__name__)
+
+# Which device kind a table belongs to (None = any network card)
+TABLE_KIND: dict[str, str | None] = {
+    "phase_rpdu2": DEVICE_PDU,
+    "bank_rpdu2": DEVICE_PDU,
+    "load_rpdu": DEVICE_PDU,
+    "load_rpdu_cfg": DEVICE_PDU,
+    "outlet_metered_rpdu2": DEVICE_PDU,
+    "env_rpdu2": DEVICE_PDU,
+    "env_uio": None,
+    "env_iem": None,
+    "env_mem": None,
+}
 
 
 @dataclass(slots=True, frozen=True)
 class ControlPoint:
-    """A single controllable outlet/group discovered via SNMP."""
+    """A switchable outlet or outlet group."""
 
     uid: str
     table_key: str
-    label: str
+    kind: str
     name: str
     index: str
-    status_oid: str
-    control_oid: str
-    on_value: int
-    off_value: int
-    cycle_value: int | None
+    state_oid: str
+    command_oid: str
+    state_on: int
+    state_off: int
+    cmd_on: int
+    cmd_off: int
+    cmd_reboot: int | None
 
 
 @dataclass(slots=True)
@@ -38,176 +81,349 @@ class ApcSnapshot:
     """Coordinator payload."""
 
     metrics: dict[str, Any]
-    control_states: dict[str, Any]
-    discovered_controls: list[ControlPoint]
+    device_kind: str
+    controls: list[ControlPoint] = field(default_factory=list)
+    control_states: dict[str, bool | None] = field(default_factory=dict)
+    # table key -> row index -> column -> value
+    tables: dict[str, dict[str, dict[str, Any]]] = field(default_factory=dict)
+
+    def metric(self, key: str) -> Any:
+        """Return a metric, None for "not available" markers."""
+        value = self.metrics.get(key)
+        return None if is_unavailable(value) else value
+
+    @property
+    def flags(self) -> str | None:
+        """UPS state flags."""
+        return parse_flags(self.metrics.get("ups_state_flags"))
 
 
-class ApcEnterpriseCoordinator(DataUpdateCoordinator[ApcSnapshot]):
-    """Poll and control APC devices via SNMP."""
+def _scale(raw: Any, scale: float, precision: int | None) -> Any:
+    if not isinstance(raw, (int, float)) or isinstance(raw, bool):
+        return raw
+    if scale == 1.0 and precision is None:
+        return raw
+    value = raw * scale
+    if precision is not None:
+        value = round(value, precision)
+        if precision == 0:
+            value = int(value)
+    return value
+
+
+class ApcCoordinator(DataUpdateCoordinator[ApcSnapshot]):
+    """Poll and control one APC network management card."""
+
+    config_entry: ConfigEntry
 
     def __init__(
         self,
         hass: HomeAssistant,
-        entry_id: str,
-        name: str,
-        snmp_client: ApcSnmpClient,
+        entry: ConfigEntry,
+        client: ApcSnmpClient,
         scan_interval: int,
         custom_metrics: list[MetricDef],
     ) -> None:
         super().__init__(
             hass,
             _LOGGER,
-            name=f"APC Rack Power {name}",
+            config_entry=entry,
+            name=f"{DOMAIN} {entry.title}",
             update_interval=timedelta(seconds=scan_interval),
         )
-        self.entry_id = entry_id
-        self.snmp = snmp_client
+        self.client = client
         self.custom_metrics = custom_metrics
+        self._metric_defs = (*METRICS, *custom_metrics)
+        self._supported_oids: set[str] | None = None
         self._controls: list[ControlPoint] = []
-        self._controls_loaded = False
-        self._refresh_counter = 0
-        self._reload_requested = False
+        self._table_rows: dict[str, dict[str, dict[str, Any]]] = {}
+        self._polls = 0
+        self.trap_count = 0
+        self.last_trap: dict[str, Any] | None = None
 
     @property
     def controls(self) -> list[ControlPoint]:
-        """Return discovered controls."""
+        """Discovered controls."""
         return self._controls
 
     @property
-    def reload_requested(self) -> bool:
-        """Whether platform reload is required."""
-        return self._reload_requested
+    def device_info(self) -> DeviceInfo:
+        """Device registry entry built from the identification values."""
+        metrics = self.data.metrics if self.data else {}
 
-    def clear_reload_request(self) -> None:
-        """Reset reload flag after platforms were reloaded."""
-        self._reload_requested = False
-
-    @staticmethod
-    def _with_index(base_oid: str, index: str) -> str:
-        return f"{base_oid}.{index}"
-
-    @staticmethod
-    def _parse_index(oid: str, base_oid: str) -> str | None:
-        normalized_oid = oid.lstrip(".")
-        normalized_base = base_oid.lstrip(".")
-        if not normalized_oid.startswith(normalized_base):
+        def text(*keys: str) -> str | None:
+            for key in keys:
+                value = metrics.get(key)
+                if not is_unavailable(value):
+                    return str(value).strip()
             return None
-        suffix = normalized_oid[len(normalized_base) :].lstrip(".")
-        return suffix or None
 
-    async def _load_controls(self) -> None:
-        discovered: list[ControlPoint] = []
-        have_rpdu2 = False
-
-        for table in CONTROL_TABLES:
-            if table.key == "spdu_outlet" and have_rpdu2:
-                continue
-            try:
-                name_map = await self.snmp.walk(table.name_oid, 512)
-            except ApcSnmpError:
-                continue
-
-            for oid, name_value in name_map.items():
-                index = self._parse_index(oid, table.name_oid)
-                if index is None:
-                    continue
-                label = str(name_value).strip() or f"{table.label} {index}"
-                if label in {"0", "None"}:
-                    continue
-                cp = self._build_control_point(table, index, label)
-                discovered.append(cp)
-                if table.key == "rpdu2_outlet":
-                    have_rpdu2 = True
-
-        if discovered:
-            deduped: dict[str, ControlPoint] = {control.uid: control for control in discovered}
-            self._controls = list(deduped.values())
-            self._controls_loaded = True
-
-    def _build_control_point(self, table: ControlTableDef, index: str, name: str) -> ControlPoint:
-        uid = f"{table.key}_{index.replace('.', '_')}"
-        return ControlPoint(
-            uid=uid,
-            table_key=table.key,
-            label=table.label,
-            name=name,
-            index=index,
-            status_oid=self._with_index(table.status_oid, index),
-            control_oid=self._with_index(table.control_oid, index),
-            on_value=table.on_value,
-            off_value=table.off_value,
-            cycle_value=table.cycle_value,
+        model = text("ups_sku", "pdu_model_number", "ups_ident_model") or extract_model_number(metrics)
+        return DeviceInfo(
+            identifiers={(DOMAIN, self.config_entry.entry_id)},
+            name=self.config_entry.title,
+            manufacturer="APC",
+            model=model,
+            serial_number=text("ups_serial_number", "pdu_serial_number"),
+            sw_version=text("ups_firmware", "pdu_firmware_rpdu"),
+            hw_version=text("pdu_hardware_rev"),
+            configuration_url=f"http://{self.config_entry.data[CONF_HOST]}",
         )
 
-    async def async_set_control(self, control: ControlPoint, state: bool) -> None:
-        """Set one control on/off."""
-        value = control.on_value if state else control.off_value
-        await self.snmp.set_integer(control.control_oid, value)
-        await asyncio.sleep(0.25)
-        await self.async_request_refresh()
-
-    async def async_cycle_control(self, control: ControlPoint) -> None:
-        """Cycle one control if supported."""
-        if control.cycle_value is None:
-            raise ApcSnmpError("Cycle command not supported for this control")
-        await self.snmp.set_integer(control.control_oid, control.cycle_value)
-        await asyncio.sleep(0.25)
-        await self.async_request_refresh()
-
-    async def async_set_oid(self, oid: str, value: int) -> None:
-        """Set arbitrary OID as integer."""
-        await self.snmp.set_integer(oid, value)
-        await asyncio.sleep(0.25)
-        await self.async_request_refresh()
-
-    async def _async_poll_metric(self, metric: MetricDef) -> Any | None:
-        raw: Any | None = None
-        oids = (metric.oid, *metric.fallback_oids)
-        for oid in oids:
-            try:
-                raw = await self.snmp.get(oid)
-            except ApcSnmpError:
-                raw = None
-            if raw is not None:
-                break
-        if raw is None:
-            return None
-        if isinstance(raw, (int, float)):
-            scaled = float(raw) * metric.scale
-            if metric.precision is not None:
-                return round(scaled, metric.precision)
-            if metric.scale != 1.0:
-                return scaled
-            if isinstance(raw, float) and raw.is_integer():
-                return int(raw)
-        return raw
+    # ----------------------------------------------------------------- polling
 
     async def _async_update_data(self) -> ApcSnapshot:
-        if not self._controls_loaded or self._refresh_counter % 20 == 0:
-            before = {item.uid for item in self._controls}
-            await self._load_controls()
-            after = {item.uid for item in self._controls}
-            if after and after != before:
-                self._reload_requested = True
+        discover = self._polls % DISCOVERY_EVERY == 0 or self._supported_oids is None
+        try:
+            metrics = await self._poll_metrics(discover)
+            if all(value is None for value in metrics.values()):
+                raise UpdateFailed(
+                    translation_domain=DOMAIN,
+                    translation_key="no_data",
+                )
+            device_kind = detect_device_kind(metrics)
+            if discover:
+                await self._discover(device_kind)
+            tables, control_states = await self._poll_tables()
+        except ApcSnmpAuthError as err:
+            raise ConfigEntryAuthFailed(
+                translation_domain=DOMAIN,
+                translation_key="auth_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
+        except ApcSnmpError as err:
+            raise UpdateFailed(
+                translation_domain=DOMAIN,
+                translation_key="update_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
 
-        metric_defs = [*BASE_METRICS, *self.custom_metrics]
-        metrics: dict[str, Any] = {}
-        for metric in metric_defs:
-            metrics[metric.key] = await self._async_poll_metric(metric)
-
-        control_states: dict[str, Any] = {}
-        for control in self._controls:
-            try:
-                control_states[control.uid] = await self.snmp.get(control.status_oid)
-            except ApcSnmpError:
-                control_states[control.uid] = None
-
-        self._refresh_counter += 1
-        if all(value is None for value in metrics.values()):
-            raise UpdateFailed("No SNMP metrics could be read. Check IP/community/ACL.")
-        return ApcSnapshot(
+        self._polls += 1
+        snapshot = ApcSnapshot(
             metrics=metrics,
+            device_kind=device_kind,
+            controls=list(self._controls),
             control_states=control_states,
-            discovered_controls=self._controls,
+            tables=tables,
+        )
+        self._update_issues(snapshot)
+        return snapshot
+
+    async def _poll_metrics(self, discover: bool) -> dict[str, Any]:
+        oids = [oid for metric in self._metric_defs for oid, _scale in metric.sources]
+        if not discover and self._supported_oids is not None:
+            oids = [oid for oid in oids if oid.lstrip(".") in self._supported_oids]
+        raw = await self.client.get_many(list(dict.fromkeys(oids)))
+        if discover:
+            self._supported_oids = {oid for oid, value in raw.items() if value is not None}
+
+        metrics: dict[str, Any] = {}
+        for metric in self._metric_defs:
+            metrics[metric.key] = None
+            for oid, scale in metric.sources:
+                value = raw.get(oid.lstrip("."))
+                if value is None or is_unavailable(value) and not metric.allow_negative:
+                    continue
+                if isinstance(value, (int, float)) and value < 0 and not metric.allow_negative:
+                    continue
+                metrics[metric.key] = _scale(value, scale, metric.precision)
+                break
+        return metrics
+
+    async def _walk(self, oid: str) -> dict[str, Any]:
+        try:
+            return await self.client.walk(oid)
+        except ApcSnmpAuthError:
+            raise
+        except ApcSnmpError as err:
+            _LOGGER.debug("Walk of %s failed: %s", oid, err)
+            return {}
+
+    @staticmethod
+    def _index(oid: str, base: str) -> str | None:
+        base = base.lstrip(".")
+        oid = oid.lstrip(".")
+        if not oid.startswith(f"{base}."):
+            return None
+        return oid[len(base) + 1 :] or None
+
+    async def _discover(self, device_kind: str) -> None:
+        """Find outlets, outlet groups and tables the device supports."""
+        controls: list[ControlPoint] = []
+        have_pdu_table = False
+        for table in CONTROL_TABLES:
+            if not kind_matches(device_kind, table.kind):
+                continue
+            if table.kind == DEVICE_PDU and have_pdu_table:
+                continue
+            names = await self._walk(table.name_oid)
+            rows = [
+                self._control_point(table, index, str(name).strip())
+                for oid, name in names.items()
+                if (index := self._index(oid, table.name_oid)) is not None
+            ]
+            if rows and table.kind == DEVICE_PDU:
+                have_pdu_table = True
+            controls.extend(rows)
+        if controls or not self._controls:
+            self._controls = controls
+
+        table_rows: dict[str, dict[str, dict[str, Any]]] = {}
+        for table in TABLES:
+            if not kind_matches(device_kind, TABLE_KIND.get(table.key)):
+                continue
+            if table.key == "load_rpdu" and "phase_rpdu2" in table_rows:
+                continue
+            if table.key == "load_rpdu_cfg" and "load_rpdu" not in table_rows:
+                continue
+            probe = next(iter({**table.columns, **table.static_columns}.values()))
+            indexes = [
+                index for oid in await self._walk(probe.oid) if (index := self._index(oid, probe.oid)) is not None
+            ]
+            if not indexes:
+                continue
+            rows: dict[str, dict[str, Any]] = {index: {} for index in indexes}
+            if table.static_columns:
+                cells = {
+                    f"{column.oid}.{index}".lstrip("."): (index, name, column)
+                    for name, column in table.static_columns.items()
+                    for index in indexes
+                }
+                values = await self.client.get_many(list(cells))
+                for oid, (index, name, column) in cells.items():
+                    rows[index][name] = _scale(values.get(oid), column.scale, column.precision)
+            table_rows[table.key] = rows
+        # A table that failed to answer this time keeps its previous rows.
+        self._table_rows = {**self._table_rows, **table_rows}
+
+    @staticmethod
+    def _control_point(table: ControlTableDef, index: str, name: str) -> ControlPoint:
+        if not name or name in {"0", "None"}:
+            name = f"{index}"
+        return ControlPoint(
+            uid=f"{table.key}_{index.replace('.', '_')}",
+            table_key=table.key,
+            kind=table.kind,
+            name=name,
+            index=index,
+            state_oid=f"{table.state_oid}.{index}",
+            command_oid=f"{table.command_oid}.{index}",
+            state_on=table.state_on,
+            state_off=table.state_off,
+            cmd_on=table.cmd_on,
+            cmd_off=table.cmd_off,
+            cmd_reboot=table.cmd_reboot,
         )
 
+    async def _poll_tables(
+        self,
+    ) -> tuple[dict[str, dict[str, dict[str, Any]]], dict[str, bool | None]]:
+        """Read all known table cells and control states in batched requests."""
+        cells: dict[str, tuple[str, str, str, Any]] = {}
+        for table in TABLES:
+            rows = self._table_rows.get(table.key)
+            if not rows:
+                continue
+            for index in rows:
+                for name, column in table.columns.items():
+                    cells[f"{column.oid}.{index}".lstrip(".")] = (table.key, index, name, column)
+        state_oids = {control.state_oid.lstrip("."): control for control in self._controls}
+        values = await self.client.get_many([*cells, *state_oids]) if cells or state_oids else {}
+
+        tables: dict[str, dict[str, dict[str, Any]]] = {
+            key: {index: dict(static) for index, static in rows.items()} for key, rows in self._table_rows.items()
+        }
+        for oid, (table_key, index, name, column) in cells.items():
+            raw = values.get(oid)
+            if raw == -1:
+                raw = None
+            tables[table_key][index][name] = _scale(raw, column.scale, column.precision)
+
+        states: dict[str, bool | None] = {}
+        for oid, control in state_oids.items():
+            raw = values.get(oid)
+            states[control.uid] = True if raw == control.state_on else False if raw == control.state_off else None
+        return tables, states
+
+    # ---------------------------------------------------------------- commands
+
+    async def async_write(self, oid: str, value: int) -> None:
+        """Write an integer and refresh afterwards."""
+        issue_id = f"write_failed_{self.config_entry.entry_id}"
+        try:
+            await self.client.set_integer(oid, value)
+        except ApcSnmpError as err:
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                issue_id,
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="write_failed",
+                translation_placeholders={"name": self.config_entry.title},
+            )
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="write_failed",
+                translation_placeholders={"error": str(err)},
+            ) from err
+        ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+        await asyncio.sleep(0.5)
+        await self.async_request_refresh()
+
+    async def async_control(self, control: ControlPoint, action: str) -> None:
+        """Switch a control on, off or reboot it."""
+        if action == "on":
+            value = control.cmd_on
+        elif action == "off":
+            value = control.cmd_off
+        elif control.cmd_reboot is not None:
+            value = control.cmd_reboot
+        else:
+            raise HomeAssistantError(
+                translation_domain=DOMAIN,
+                translation_key="reboot_not_supported",
+            )
+        await self.async_write(control.command_oid, value)
+
+    # ------------------------------------------------------------------ issues
+
+    def _update_issues(self, snapshot: ApcSnapshot) -> None:
+        issue_id = f"battery_replace_{self.config_entry.entry_id}"
+        replace = snapshot.metric("ups_battery_replace_indicator") == 2 or bool(
+            flag(snapshot.flags, FLAG_REPLACE_BATTERY)
+        )
+        if replace:
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                issue_id,
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="battery_replace",
+                translation_placeholders={"name": self.config_entry.title},
+            )
+        else:
+            ir.async_delete_issue(self.hass, DOMAIN, issue_id)
+
+    # ------------------------------------------------------------------- traps
+
+    def handle_trap(self, trap: TrapInfo) -> None:
+        """React to a trap from this device: fire an event and poll at once."""
+        self.trap_count += 1
+        self.last_trap = {
+            "trap_oid": trap.trap_oid,
+            "varbinds": trap.varbinds,
+        }
+        self.hass.bus.async_fire(
+            EVENT_TRAP,
+            {
+                "entry_id": self.config_entry.entry_id,
+                "host": trap.source,
+                "trap_oid": trap.trap_oid,
+                "varbinds": trap.varbinds,
+            },
+        )
+        self.config_entry.async_create_background_task(
+            self.hass, self.async_request_refresh(), f"{DOMAIN}_trap_refresh"
+        )

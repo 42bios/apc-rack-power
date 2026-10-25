@@ -1,288 +1,304 @@
-"""Config flow for APC Rack Power integration."""
+"""Config flow for APC Rack Power."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Any
 
-import voluptuous as vol
-from homeassistant import config_entries
-from homeassistant.config_entries import ConfigEntry, ConfigFlow
+from homeassistant.config_entries import (
+    SOURCE_REAUTH,
+    SOURCE_RECONFIGURE,
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
 from homeassistant.const import CONF_HOST
-from homeassistant.data_entry_flow import FlowResult
+from homeassistant.core import callback
+from homeassistant.helpers.selector import (
+    BooleanSelector,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
+)
+from homeassistant.helpers.service_info.dhcp import DhcpServiceInfo
+import voluptuous as vol
 
+from . import credentials_from
 from .const import (
+    AUTH_PROTOCOLS,
     CONF_COMMUNITY,
     CONF_CUSTOM_OIDS,
     CONF_NAME,
-    CONF_PDU_NOMINAL_WATTS,
     CONF_PORT,
     CONF_RETRIES,
     CONF_SCAN_INTERVAL,
     CONF_SNMP_VERSION,
-    CONF_TEMP_SCALE,
     CONF_TIMEOUT,
+    CONF_TRAP_COMMUNITY,
+    CONF_TRAP_ENABLED,
+    CONF_TRAP_PORT,
     CONF_V3_AUTH_PASSPHRASE,
     CONF_V3_AUTH_PROTOCOL,
     CONF_V3_PRIV_PASSPHRASE,
     CONF_V3_PRIV_PROTOCOL,
     CONF_V3_USERNAME,
     CONF_WRITE_COMMUNITY,
+    CONNECTION_KEYS,
     DEFAULT_COMMUNITY,
     DEFAULT_NAME,
-    DEFAULT_PDU_NOMINAL_WATTS,
     DEFAULT_PORT,
     DEFAULT_RETRIES,
     DEFAULT_SCAN_INTERVAL,
     DEFAULT_SNMP_VERSION,
-    DEFAULT_TEMP_SCALE,
     DEFAULT_TIMEOUT,
-    DEFAULT_V3_AUTH_PROTOCOL,
-    DEFAULT_V3_PRIV_PROTOCOL,
+    DEFAULT_TRAP_COMMUNITY,
+    DEFAULT_TRAP_PORT,
     DOMAIN,
+    PRIV_PROTOCOLS,
+    SNMP_V3,
+    SNMP_VERSIONS,
 )
-from .device_profile import DEVICE_UPS, detect_device_kind
-from .snmp_client import ApcSnmpClient, ApcSnmpError
+from .snmp_client import ApcSnmpAuthError, ApcSnmpClient, ApcSnmpError
+
+_PASSWORD = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
+_TEXT = TextSelector()
 
 
-async def _test_connection(
-    hass,
-    host: str,
-    port: int,
-    community: str,
-    write_community: str,
-    timeout: int,
-    retries: int,
-    snmp_version: str,
-    v3_username: str,
-    v3_auth_protocol: str,
-    v3_auth_passphrase: str,
-    v3_priv_protocol: str,
-    v3_priv_passphrase: str,
-) -> bool:
-    client = ApcSnmpClient(
-        host=host,
-        community=community,
-        write_community=write_community,
-        port=port,
-        timeout=timeout,
-        retries=retries,
-        snmp_version=snmp_version,
-        v3_username=v3_username,
-        v3_auth_protocol=v3_auth_protocol,
-        v3_auth_passphrase=v3_auth_passphrase,
-        v3_priv_protocol=v3_priv_protocol,
-        v3_priv_passphrase=v3_priv_passphrase,
+def _select(options: list[str], key: str) -> SelectSelector:
+    return SelectSelector(SelectSelectorConfig(options=options, translation_key=key, mode=SelectSelectorMode.DROPDOWN))
+
+
+def _number(minimum: int, maximum: int, unit: str | None = None) -> NumberSelector:
+    return NumberSelector(
+        NumberSelectorConfig(min=minimum, max=maximum, step=1, mode=NumberSelectorMode.BOX, unit_of_measurement=unit)
     )
-    try:
-        value = await client.get(".1.3.6.1.2.1.1.1.0")
-    except ApcSnmpError:
-        return False
-    return value is not None
 
 
-def _validate_snmp_v3(user_input: dict[str, Any], errors: dict[str, str]) -> None:
-    """Validate SNMPv3 combinations."""
-    snmp_version = str(user_input.get(CONF_SNMP_VERSION, DEFAULT_SNMP_VERSION)).strip().lower()
-    if snmp_version != "v3":
-        return
-    username = str(user_input.get(CONF_V3_USERNAME, "")).strip()
-    auth_protocol = str(user_input.get(CONF_V3_AUTH_PROTOCOL, DEFAULT_V3_AUTH_PROTOCOL)).strip().lower()
-    auth_pass = str(user_input.get(CONF_V3_AUTH_PASSPHRASE, ""))
-    priv_protocol = str(user_input.get(CONF_V3_PRIV_PROTOCOL, DEFAULT_V3_PRIV_PROTOCOL)).strip().lower()
-    priv_pass = str(user_input.get(CONF_V3_PRIV_PASSPHRASE, ""))
-
-    if not username:
-        errors["base"] = "invalid_auth"
-        return
-    if auth_protocol != "none" and len(auth_pass) < 8:
-        errors["base"] = "invalid_auth"
-        return
-    if auth_protocol == "none" and priv_protocol != "none":
-        errors["base"] = "invalid_auth"
-        return
-    if priv_protocol != "none" and len(priv_pass) < 8:
-        errors["base"] = "invalid_auth"
-        return
+def _connection_schema(defaults: Mapping[str, Any], with_name: bool) -> vol.Schema:
+    fields: dict[Any, Any] = {vol.Required(CONF_HOST, default=defaults.get(CONF_HOST, "")): _TEXT}
+    if with_name:
+        fields[vol.Required(CONF_NAME, default=defaults.get(CONF_NAME, DEFAULT_NAME))] = _TEXT
+    fields[vol.Required(CONF_PORT, default=int(defaults.get(CONF_PORT, DEFAULT_PORT)))] = _number(1, 65535)
+    fields[vol.Required(CONF_SNMP_VERSION, default=defaults.get(CONF_SNMP_VERSION, DEFAULT_SNMP_VERSION))] = _select(
+        SNMP_VERSIONS, "snmp_version"
+    )
+    return vol.Schema(fields)
 
 
-class ApcEnterpriseOptionsFlow(config_entries.OptionsFlow):
-    """Options flow for APC Rack Power."""
-
-    def __init__(self, config_entry: ConfigEntry) -> None:
-        self._entry = config_entry
-
-    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> FlowResult:
-        if user_input is not None:
-            errors: dict[str, str] = {}
-            _validate_snmp_v3(user_input, errors)
-            if errors:
-                return self.async_show_form(step_id="init", data_schema=self._build_schema(), errors=errors)
-            return self.async_create_entry(title="", data=user_input)
-        return self.async_show_form(step_id="init", data_schema=self._build_schema())
-
-    def _build_schema(self) -> vol.Schema:
-        data = dict(self._entry.data)
-        options = dict(self._entry.options)
-        schema_fields: dict[Any, Any] = {
-            vol.Required(
-                CONF_SCAN_INTERVAL,
-                default=options.get(
-                    CONF_SCAN_INTERVAL, data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
-                ),
-            ): vol.All(vol.Coerce(int), vol.Range(min=5, max=600)),
-            vol.Required(
-                CONF_TIMEOUT,
-                default=options.get(CONF_TIMEOUT, data.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)),
-            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=30)),
-            vol.Required(
-                CONF_RETRIES,
-                default=options.get(CONF_RETRIES, data.get(CONF_RETRIES, DEFAULT_RETRIES)),
-            ): vol.All(vol.Coerce(int), vol.Range(min=0, max=10)),
-            vol.Optional(
-                CONF_CUSTOM_OIDS,
-                default=options.get(CONF_CUSTOM_OIDS, data.get(CONF_CUSTOM_OIDS, "")),
-            ): str,
-            vol.Required(
-                CONF_SNMP_VERSION,
-                default=options.get(CONF_SNMP_VERSION, data.get(CONF_SNMP_VERSION, DEFAULT_SNMP_VERSION)),
-            ): vol.In({"v2c": "v2c", "v3": "v3"}),
-            vol.Required(
-                CONF_COMMUNITY,
-                default=options.get(CONF_COMMUNITY, data.get(CONF_COMMUNITY, DEFAULT_COMMUNITY)),
-            ): str,
-            vol.Optional(
-                CONF_WRITE_COMMUNITY,
-                default=options.get(CONF_WRITE_COMMUNITY, data.get(CONF_WRITE_COMMUNITY, "")),
-            ): str,
-            vol.Optional(
-                CONF_V3_USERNAME,
-                default=options.get(CONF_V3_USERNAME, data.get(CONF_V3_USERNAME, "")),
-            ): str,
-            vol.Required(
-                CONF_V3_AUTH_PROTOCOL,
-                default=options.get(
-                    CONF_V3_AUTH_PROTOCOL, data.get(CONF_V3_AUTH_PROTOCOL, DEFAULT_V3_AUTH_PROTOCOL)
-                ),
-            ): vol.In({"none": "none", "sha": "sha", "md5": "md5"}),
-            vol.Optional(
-                CONF_V3_AUTH_PASSPHRASE,
-                default=options.get(CONF_V3_AUTH_PASSPHRASE, data.get(CONF_V3_AUTH_PASSPHRASE, "")),
-            ): str,
-            vol.Required(
-                CONF_V3_PRIV_PROTOCOL,
-                default=options.get(
-                    CONF_V3_PRIV_PROTOCOL, data.get(CONF_V3_PRIV_PROTOCOL, DEFAULT_V3_PRIV_PROTOCOL)
-                ),
-            ): vol.In({"none": "none", "aes": "aes", "des": "des"}),
-            vol.Optional(
-                CONF_V3_PRIV_PASSPHRASE,
-                default=options.get(CONF_V3_PRIV_PASSPHRASE, data.get(CONF_V3_PRIV_PASSPHRASE, "")),
-            ): str,
-            vol.Required(
-                CONF_TEMP_SCALE,
-                default=options.get(CONF_TEMP_SCALE, data.get(CONF_TEMP_SCALE, DEFAULT_TEMP_SCALE)),
-            ): vol.In({"celsius": "celsius", "fahrenheit": "fahrenheit"}),
+def _community_schema(defaults: Mapping[str, Any]) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(CONF_COMMUNITY, default=defaults.get(CONF_COMMUNITY, DEFAULT_COMMUNITY)): _PASSWORD,
+            vol.Optional(CONF_WRITE_COMMUNITY, default=defaults.get(CONF_WRITE_COMMUNITY, "")): _PASSWORD,
         }
-
-        coordinator = self.hass.data.get(DOMAIN, {}).get(self._entry.entry_id, {}).get("coordinator")
-        metrics = coordinator.data.metrics if coordinator and coordinator.data else {}
-        device_kind = detect_device_kind(metrics)
-        if device_kind != DEVICE_UPS:
-            schema_fields[
-                vol.Required(
-                    CONF_PDU_NOMINAL_WATTS,
-                    default=options.get(
-                        CONF_PDU_NOMINAL_WATTS,
-                        data.get(CONF_PDU_NOMINAL_WATTS, DEFAULT_PDU_NOMINAL_WATTS),
-                    ),
-                )
-            ] = vol.All(vol.Coerce(int), vol.Range(min=0, max=200000))
-
-        return vol.Schema(schema_fields)
+    )
 
 
-class ApcEnterpriseConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Main config flow."""
+def _v3_schema(defaults: Mapping[str, Any]) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(CONF_V3_USERNAME, default=defaults.get(CONF_V3_USERNAME, "")): _TEXT,
+            vol.Required(CONF_V3_AUTH_PROTOCOL, default=defaults.get(CONF_V3_AUTH_PROTOCOL, "sha256")): _select(
+                AUTH_PROTOCOLS, "auth_protocol"
+            ),
+            vol.Optional(CONF_V3_AUTH_PASSPHRASE, default=defaults.get(CONF_V3_AUTH_PASSPHRASE, "")): _PASSWORD,
+            vol.Required(CONF_V3_PRIV_PROTOCOL, default=defaults.get(CONF_V3_PRIV_PROTOCOL, "aes")): _select(
+                PRIV_PROTOCOLS, "priv_protocol"
+            ),
+            vol.Optional(CONF_V3_PRIV_PASSPHRASE, default=defaults.get(CONF_V3_PRIV_PASSPHRASE, "")): _PASSWORD,
+        }
+    )
+
+
+def _validate_v3(user_input: Mapping[str, Any]) -> dict[str, str]:
+    errors: dict[str, str] = {}
+    auth = str(user_input.get(CONF_V3_AUTH_PROTOCOL, "none"))
+    priv = str(user_input.get(CONF_V3_PRIV_PROTOCOL, "none"))
+    if not str(user_input.get(CONF_V3_USERNAME, "")).strip():
+        errors[CONF_V3_USERNAME] = "username_required"
+    if auth != "none" and len(str(user_input.get(CONF_V3_AUTH_PASSPHRASE, ""))) < 8:
+        errors[CONF_V3_AUTH_PASSPHRASE] = "passphrase_too_short"
+    if priv != "none":
+        if auth == "none":
+            errors[CONF_V3_PRIV_PROTOCOL] = "priv_requires_auth"
+        elif len(str(user_input.get(CONF_V3_PRIV_PASSPHRASE, ""))) < 8:
+            errors[CONF_V3_PRIV_PASSPHRASE] = "passphrase_too_short"
+    return errors
+
+
+class ApcConfigFlow(ConfigFlow, domain=DOMAIN):
+    """Set up an APC network management card."""
 
     VERSION = 1
+    MINOR_VERSION = 2
 
-    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> FlowResult:
-        errors: dict[str, str] = {}
+    def __init__(self) -> None:
+        self._data: dict[str, Any] = {}
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> ApcOptionsFlow:
+        return ApcOptionsFlow()
+
+    # ------------------------------------------------------------ entry points
+
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Host and SNMP version."""
         if user_input is not None:
-            _validate_snmp_v3(user_input, errors)
-            if errors:
-                return self.async_show_form(step_id="user", data_schema=self._build_user_schema(), errors=errors)
             host = str(user_input[CONF_HOST]).strip()
             await self.async_set_unique_id(host)
             self._abort_if_unique_id_configured()
+            self._data.update(user_input, **{CONF_HOST: host, CONF_PORT: int(user_input[CONF_PORT])})
+            return await self._async_step_credentials()
+        return self.async_show_form(step_id="user", data_schema=_connection_schema(self._data, with_name=True))
 
-            ok = await _test_connection(
-                self.hass,
-                host=host,
-                port=int(user_input[CONF_PORT]),
-                community=str(user_input[CONF_COMMUNITY]),
-                write_community=str(user_input.get(CONF_WRITE_COMMUNITY, "")),
-                timeout=int(user_input[CONF_TIMEOUT]),
-                retries=int(user_input[CONF_RETRIES]),
-                snmp_version=str(user_input[CONF_SNMP_VERSION]),
-                v3_username=str(user_input.get(CONF_V3_USERNAME, "")),
-                v3_auth_protocol=str(user_input.get(CONF_V3_AUTH_PROTOCOL, DEFAULT_V3_AUTH_PROTOCOL)),
-                v3_auth_passphrase=str(user_input.get(CONF_V3_AUTH_PASSPHRASE, "")),
-                v3_priv_protocol=str(user_input.get(CONF_V3_PRIV_PROTOCOL, DEFAULT_V3_PRIV_PROTOCOL)),
-                v3_priv_passphrase=str(user_input.get(CONF_V3_PRIV_PASSPHRASE, "")),
-            )
-            if ok:
-                return self.async_create_entry(
-                    title=str(user_input[CONF_NAME]),
-                    data=user_input,
-                )
-            errors["base"] = "cannot_connect"
+    async def async_step_dhcp(self, discovery_info: DhcpServiceInfo) -> ConfigFlowResult:
+        """An APC network card asked for an IP address."""
+        host = discovery_info.ip
+        await self.async_set_unique_id(host)
+        self._abort_if_unique_id_configured()
+        self._async_abort_entries_match({CONF_HOST: host})
+        self._data[CONF_HOST] = host
+        self.context["title_placeholders"] = {"host": host}
+        return await self.async_step_user()
 
-        schema = self._build_user_schema()
-        return self.async_show_form(step_id="user", data_schema=schema, errors=errors)
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Change address, port, SNMP version or credentials."""
+        entry = self._get_reconfigure_entry()
+        if user_input is not None:
+            host = str(user_input[CONF_HOST]).strip()
+            if host != entry.data[CONF_HOST]:
+                await self.async_set_unique_id(host)
+                self._abort_if_unique_id_configured()
+            self._data = {**entry.data, **user_input, CONF_HOST: host, CONF_PORT: int(user_input[CONF_PORT])}
+            return await self._async_step_credentials()
+        return self.async_show_form(step_id="reconfigure", data_schema=_connection_schema(entry.data, with_name=False))
 
-    def _build_user_schema(self) -> vol.Schema:
-        return vol.Schema(
-            {
-                vol.Required(CONF_HOST): str,
-                vol.Required(CONF_NAME, default=DEFAULT_NAME): str,
-                vol.Required(CONF_SNMP_VERSION, default=DEFAULT_SNMP_VERSION): vol.In(
-                    {"v2c": "v2c", "v3": "v3"}
-                ),
-                vol.Required(CONF_COMMUNITY, default=DEFAULT_COMMUNITY): str,
-                vol.Optional(CONF_WRITE_COMMUNITY, default=""): str,
-                vol.Optional(CONF_V3_USERNAME, default=""): str,
-                vol.Required(CONF_V3_AUTH_PROTOCOL, default=DEFAULT_V3_AUTH_PROTOCOL): vol.In(
-                    {"none": "none", "sha": "sha", "md5": "md5"}
-                ),
-                vol.Optional(CONF_V3_AUTH_PASSPHRASE, default=""): str,
-                vol.Required(CONF_V3_PRIV_PROTOCOL, default=DEFAULT_V3_PRIV_PROTOCOL): vol.In(
-                    {"none": "none", "aes": "aes", "des": "des"}
-                ),
-                vol.Optional(CONF_V3_PRIV_PASSPHRASE, default=""): str,
-                vol.Required(CONF_PORT, default=DEFAULT_PORT): vol.All(
-                    vol.Coerce(int), vol.Range(min=1, max=65535)
-                ),
-                vol.Required(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): vol.All(
-                    vol.Coerce(int), vol.Range(min=5, max=600)
-                ),
-                vol.Required(CONF_TIMEOUT, default=DEFAULT_TIMEOUT): vol.All(
-                    vol.Coerce(int), vol.Range(min=1, max=30)
-                ),
-                vol.Required(CONF_RETRIES, default=DEFAULT_RETRIES): vol.All(
-                    vol.Coerce(int), vol.Range(min=0, max=10)
-                ),
-                vol.Optional(CONF_CUSTOM_OIDS, default=""): str,
-                vol.Required(CONF_PDU_NOMINAL_WATTS, default=DEFAULT_PDU_NOMINAL_WATTS): vol.All(
-                    vol.Coerce(int), vol.Range(min=0, max=200000)
-                ),
-                vol.Required(CONF_TEMP_SCALE, default=DEFAULT_TEMP_SCALE): vol.In(
-                    {"celsius": "celsius", "fahrenheit": "fahrenheit"}
-                ),
-            }
+    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
+        """The device rejected the stored credentials."""
+        self._data = dict(entry_data)
+        return await self._async_step_credentials()
+
+    # ------------------------------------------------------------- credentials
+
+    async def _async_step_credentials(self) -> ConfigFlowResult:
+        if self._data.get(CONF_SNMP_VERSION) == SNMP_V3:
+            return await self.async_step_v3()
+        return await self.async_step_community()
+
+    async def async_step_community(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Community strings for SNMPv1/v2c."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            candidate = {**self._data, **user_input}
+            errors = await self._async_test(candidate)
+            if not errors:
+                return self._async_finish(candidate)
+        return self.async_show_form(
+            step_id="community",
+            data_schema=self.add_suggested_values_to_schema(_community_schema(self._data), user_input or self._data),
+            errors=errors,
+            description_placeholders={"version": str(self._data.get(CONF_SNMP_VERSION, "v2c")).upper()},
         )
 
-    @staticmethod
-    def async_get_options_flow(config_entry: ConfigEntry) -> ApcEnterpriseOptionsFlow:
-        return ApcEnterpriseOptionsFlow(config_entry)
+    async def async_step_v3(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """User and keys for SNMPv3."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            candidate = {**self._data, **user_input}
+            errors = _validate_v3(candidate) or await self._async_test(candidate)
+            if not errors:
+                return self._async_finish(candidate)
+        return self.async_show_form(
+            step_id="v3",
+            data_schema=self.add_suggested_values_to_schema(_v3_schema(self._data), user_input or self._data),
+            errors=errors,
+        )
 
+    async def _async_test(self, data: Mapping[str, Any]) -> dict[str, str]:
+        client = await ApcSnmpClient.async_create(
+            self.hass,
+            host=str(data[CONF_HOST]),
+            port=int(data.get(CONF_PORT, DEFAULT_PORT)),
+            timeout=DEFAULT_TIMEOUT,
+            retries=DEFAULT_RETRIES,
+            credentials=credentials_from(dict(data)),
+        )
+        try:
+            value = await client.get(".1.3.6.1.2.1.1.1.0")
+        except ApcSnmpAuthError:
+            return {"base": "invalid_auth"}
+        except ApcSnmpError:
+            return {"base": "cannot_connect"}
+        return {} if value else {"base": "cannot_connect"}
+
+    def _async_finish(self, data: dict[str, Any]) -> ConfigFlowResult:
+        # Keep only the fields of the chosen SNMP version.
+        is_v3 = data.get(CONF_SNMP_VERSION) == SNMP_V3
+        unused = (
+            (CONF_COMMUNITY, CONF_WRITE_COMMUNITY)
+            if is_v3
+            else (
+                CONF_V3_USERNAME,
+                CONF_V3_AUTH_PROTOCOL,
+                CONF_V3_AUTH_PASSPHRASE,
+                CONF_V3_PRIV_PROTOCOL,
+                CONF_V3_PRIV_PASSPHRASE,
+            )
+        )
+        clean = {key: value for key, value in data.items() if key not in unused}
+
+        if self.source == SOURCE_RECONFIGURE:
+            entry = self._get_reconfigure_entry()
+            new_data = {key: value for key, value in entry.data.items() if key not in CONNECTION_KEYS}
+            new_data.update(clean)
+            return self.async_update_reload_and_abort(
+                entry,
+                unique_id=str(clean[CONF_HOST]),
+                data=new_data,
+                options={key: value for key, value in entry.options.items() if key not in CONNECTION_KEYS},
+            )
+        if self.source == SOURCE_REAUTH:
+            entry = self._get_reauth_entry()
+            new_data = {key: value for key, value in entry.data.items() if key not in CONNECTION_KEYS}
+            new_data.update(clean)
+            return self.async_update_reload_and_abort(entry, data=new_data)
+        return self.async_create_entry(title=str(clean.get(CONF_NAME) or DEFAULT_NAME), data=clean)
+
+
+class ApcOptionsFlow(OptionsFlow):
+    """Polling and trap settings."""
+
+    async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        if user_input is not None:
+            data = dict(user_input)
+            for key in (CONF_SCAN_INTERVAL, CONF_TIMEOUT, CONF_RETRIES, CONF_TRAP_PORT):
+                data[key] = int(data[key])
+            return self.async_create_entry(data=data)
+
+        options = self.config_entry.options
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_SCAN_INTERVAL, default=options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
+                ): _number(5, 600, "s"),
+                vol.Required(CONF_TIMEOUT, default=options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)): _number(1, 30, "s"),
+                vol.Required(CONF_RETRIES, default=options.get(CONF_RETRIES, DEFAULT_RETRIES)): _number(0, 10),
+                vol.Optional(CONF_CUSTOM_OIDS, default=options.get(CONF_CUSTOM_OIDS, "")): TextSelector(
+                    TextSelectorConfig(multiline=True)
+                ),
+                vol.Required(CONF_TRAP_ENABLED, default=options.get(CONF_TRAP_ENABLED, False)): BooleanSelector(),
+                vol.Required(CONF_TRAP_PORT, default=options.get(CONF_TRAP_PORT, DEFAULT_TRAP_PORT)): _number(1, 65535),
+                vol.Optional(
+                    CONF_TRAP_COMMUNITY, default=options.get(CONF_TRAP_COMMUNITY, DEFAULT_TRAP_COMMUNITY)
+                ): _PASSWORD,
+            }
+        )
+        return self.async_show_form(step_id="init", data_schema=schema)

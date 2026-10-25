@@ -1,193 +1,335 @@
-"""SNMP helper client for APC Rack Power based on puresnmp."""
+"""Async SNMP client for APC Rack Power based on pysnmp."""
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
+import logging
 from typing import Any
 
-from puresnmp import (  # type: ignore[import-untyped]
-    V1,
-    V2C,
-    V3,
-    Auth,
-    Client,
-    Priv,
-    PyWrapper,
+from homeassistant.const import EVENT_HOMEASSISTANT_STOP
+from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.helpers.singleton import singleton
+from pyasn1.type import univ
+from pysnmp.hlapi.v3arch.asyncio import (
+    CommunityData,
+    ContextData,
+    Integer32,
+    ObjectIdentity,
+    ObjectType,
+    SnmpEngine,
+    Udp6TransportTarget,
+    UdpTransportTarget,
+    UsmUserData,
+    bulk_walk_cmd,
+    get_cmd,
+    set_cmd,
+    usm3DESEDEPrivProtocol,
+    usmAesBlumenthalCfb192Protocol,
+    usmAesBlumenthalCfb256Protocol,
+    usmAesCfb128Protocol,
+    usmAesCfb192Protocol,
+    usmAesCfb256Protocol,
+    usmDESPrivProtocol,
+    usmHMAC128SHA224AuthProtocol,
+    usmHMAC192SHA256AuthProtocol,
+    usmHMAC256SHA384AuthProtocol,
+    usmHMAC384SHA512AuthProtocol,
+    usmHMACMD5AuthProtocol,
+    usmHMACSHAAuthProtocol,
+    usmNoAuthProtocol,
+    usmNoPrivProtocol,
+    walk_cmd,
 )
-from x690.types import Integer as XInteger  # type: ignore[import-untyped]
+from pysnmp.hlapi.v3arch.asyncio.cmdgen import LCD
+from pysnmp.proto import rfc1902, rfc1905
+from pysnmp.smi import view
+
+from .const import SNMP_V1, SNMP_V3
+
+_LOGGER = logging.getLogger(__name__)
+
+DATA_ENGINE = "apc_rack_power_snmp_engine"
+
+# APC agents answer reliably with up to this many varbinds per request.
+GET_BATCH_SIZE = 16
+WALK_REPETITIONS = 24
+
+AUTH_PROTOCOL_MAP = {
+    "none": usmNoAuthProtocol,
+    "md5": usmHMACMD5AuthProtocol,
+    "sha": usmHMACSHAAuthProtocol,
+    "sha1": usmHMACSHAAuthProtocol,
+    "sha224": usmHMAC128SHA224AuthProtocol,
+    "sha256": usmHMAC192SHA256AuthProtocol,
+    "sha384": usmHMAC256SHA384AuthProtocol,
+    "sha512": usmHMAC384SHA512AuthProtocol,
+}
+
+PRIV_PROTOCOL_MAP = {
+    "none": usmNoPrivProtocol,
+    "des": usmDESPrivProtocol,
+    "3des": usm3DESEDEPrivProtocol,
+    "aes": usmAesCfb128Protocol,
+    "aes192": usmAesBlumenthalCfb192Protocol,
+    "aes256": usmAesBlumenthalCfb256Protocol,
+    "aes192c": usmAesCfb192Protocol,
+    "aes256c": usmAesCfb256Protocol,
+}
+
+# Error indications that mean "wrong SNMPv3 credentials"
+_AUTH_ERRORS = {
+    "WrongDigest",
+    "UnknownUserName",
+    "UnknownSecurityName",
+    "UnsupportedSecurityLevel",
+    "AuthenticationFailure",
+    "AuthenticationError",
+    "DecryptionError",
+}
+
+_NO_VALUE = (rfc1905.NoSuchObject, rfc1905.NoSuchInstance, rfc1905.EndOfMibView)
 
 
-class ApcSnmpError(RuntimeError):
-    """Raised when SNMP command fails."""
+class ApcSnmpError(Exception):
+    """Raised when an SNMP request fails."""
 
 
-@dataclass(slots=True)
-class ApcSnmpClient:
-    """Async SNMP client with v2c->v1 fallback and retry support."""
+class ApcSnmpAuthError(ApcSnmpError):
+    """Raised when the device rejects the SNMPv3 credentials."""
 
-    host: str
-    community: str
-    write_community: str
-    port: int
-    timeout: int
-    retries: int
-    snmp_version: str = "v2c"
+
+@dataclass(slots=True, frozen=True)
+class SnmpCredentials:
+    """Credentials for one device."""
+
+    version: str
+    community: str = ""
+    write_community: str = ""
     v3_username: str = ""
     v3_auth_protocol: str = "none"
     v3_auth_passphrase: str = ""
     v3_priv_protocol: str = "none"
     v3_priv_passphrase: str = ""
-    _wrappers: dict[tuple[str, int], PyWrapper] | None = None
 
-    def __post_init__(self) -> None:
-        self._wrappers = {}
 
-    @staticmethod
-    def _normalize_oid(oid: str) -> str:
-        return oid.lstrip(".")
+@singleton(DATA_ENGINE)
+async def async_get_engine(hass: HomeAssistant) -> SnmpEngine:
+    """Return the shared SNMP engine (created in the executor, it loads MIBs)."""
+    engine = await hass.async_add_executor_job(_create_engine)
 
-    @staticmethod
-    def _normalize_value(value: Any) -> Any:
-        if isinstance(value, bytes):
-            try:
-                return value.decode("utf-8", errors="ignore")
-            except (UnicodeDecodeError, LookupError):
-                return repr(value)
-        return value
+    @callback
+    def _shutdown(_event: Event) -> None:
+        LCD.unconfigure(engine, None)
 
-    async def _call_with_retries(self, coro_factory):
-        last_err: Exception | None = None
-        attempts = max(1, self.retries + 1)
-        for _ in range(attempts):
-            try:
-                return await coro_factory()
-            except Exception as err:  # noqa: BLE001 - puresnmp raises varied/undocumented errors; retried then wrapped below
-                last_err = err
-        raise ApcSnmpError(str(last_err) if last_err else "SNMP operation failed")
+    hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _shutdown)
+    return engine
 
-    def _wrapper(self, community: str, mp_model: int) -> PyWrapper:
-        assert self._wrappers is not None
-        if self.snmp_version == "v3":
-            cache_key = ("v3", 3)
-        else:
-            cache_key = (community, mp_model)
-        cached = self._wrappers.get(cache_key)
-        if cached is not None:
-            return cached
-        if self.snmp_version == "v3":
-            username = self.v3_username.strip()
-            auth_proto = self.v3_auth_protocol.strip().lower()
-            priv_proto = self.v3_priv_protocol.strip().lower()
-            auth = None
-            priv = None
-            if auth_proto != "none" and self.v3_auth_passphrase:
-                auth = Auth(self.v3_auth_passphrase.encode("utf-8"), auth_proto)
-            if priv_proto != "none" and self.v3_priv_passphrase and auth is not None:
-                priv = Priv(self.v3_priv_passphrase.encode("utf-8"), priv_proto)
-            creds = V3(username=username, auth=auth, priv=priv)
-        else:
-            creds = V2C(community) if mp_model == 1 else V1(community)
-        wrapper = PyWrapper(Client(self.host, creds, port=self.port))
-        self._wrappers[cache_key] = wrapper
-        return wrapper
 
-    @staticmethod
-    def _iter_models() -> tuple[int, int]:
-        return (1, 0)
+def _create_engine() -> SnmpEngine:
+    engine = SnmpEngine()
+    controller = view.MibViewController(engine.message_dispatcher.mib_instrum_controller.get_mib_builder())
+    engine.cache["mibViewController"] = controller
+    controller.mibBuilder.load_modules()
+    return engine
 
-    async def get(self, oid: str) -> Any | None:
-        normalized = self._normalize_oid(oid)
-        if self.snmp_version == "v3":
-            wrapper = await asyncio.to_thread(self._wrapper, self.community, 3)
-            try:
-                value = await self._call_with_retries(
-                    lambda wrapper=wrapper: wrapper.get(normalized)
+
+def convert_value(value: Any) -> Any:
+    """Convert a pysnmp value into a plain Python value."""
+    if value is None or isinstance(value, _NO_VALUE):
+        return None
+    if hasattr(value, "getOid"):  # ObjectIdentity resolved through the MIB view
+        return str(value.getOid())
+    if isinstance(value, rfc1902.IpAddress):
+        return value.prettyPrint()
+    if isinstance(value, univ.Integer):
+        return int(value)
+    if isinstance(value, univ.ObjectIdentifier):
+        return str(value)
+    if isinstance(value, univ.OctetString):
+        raw = bytes(value)
+        try:
+            return raw.decode("utf-8").strip("\x00").strip()
+        except UnicodeDecodeError:
+            return value.prettyPrint()
+    return value.prettyPrint() if hasattr(value, "prettyPrint") else value
+
+
+def _normalize(oid: str) -> str:
+    return oid.lstrip(".")
+
+
+class ApcSnmpClient:
+    """SNMP access to one APC network management card."""
+
+    def __init__(
+        self,
+        engine: SnmpEngine,
+        host: str,
+        port: int,
+        timeout: int,
+        retries: int,
+        credentials: SnmpCredentials,
+    ) -> None:
+        self._engine = engine
+        self.host = host
+        self.port = port
+        self.timeout = timeout
+        self.retries = retries
+        self.credentials = credentials
+        self._target: UdpTransportTarget | Udp6TransportTarget | None = None
+
+    @classmethod
+    async def async_create(
+        cls,
+        hass: HomeAssistant,
+        host: str,
+        port: int,
+        timeout: int,
+        retries: int,
+        credentials: SnmpCredentials,
+    ) -> ApcSnmpClient:
+        """Create a client using the shared engine."""
+        return cls(await async_get_engine(hass), host, port, timeout, retries, credentials)
+
+    @property
+    def can_write(self) -> bool:
+        """Whether credentials for write requests exist."""
+        if self.credentials.version == SNMP_V3:
+            return bool(self.credentials.v3_username)
+        return bool(self.credentials.write_community or self.credentials.community)
+
+    def _auth(self, write: bool = False) -> CommunityData | UsmUserData:
+        creds = self.credentials
+        if creds.version == SNMP_V3:
+            auth_proto = AUTH_PROTOCOL_MAP.get(creds.v3_auth_protocol.lower(), usmNoAuthProtocol)
+            priv_proto = PRIV_PROTOCOL_MAP.get(creds.v3_priv_protocol.lower(), usmNoPrivProtocol)
+            if auth_proto == usmNoAuthProtocol:
+                return UsmUserData(creds.v3_username)
+            if priv_proto == usmNoPrivProtocol:
+                return UsmUserData(
+                    creds.v3_username,
+                    authKey=creds.v3_auth_passphrase,
+                    authProtocol=auth_proto,
                 )
-                return self._normalize_value(value)
-            except ApcSnmpError as err:
-                raise ApcSnmpError(str(err)) from err
-        last_err: Exception | None = None
-        for mp_model in self._iter_models():
-            wrapper = await asyncio.to_thread(self._wrapper, self.community, mp_model)
+            return UsmUserData(
+                creds.v3_username,
+                authKey=creds.v3_auth_passphrase,
+                privKey=creds.v3_priv_passphrase,
+                authProtocol=auth_proto,
+                privProtocol=priv_proto,
+            )
+        community = (creds.write_community or creds.community) if write else creds.community
+        return CommunityData(community, mpModel=0 if creds.version == SNMP_V1 else 1)
+
+    async def _get_target(self) -> UdpTransportTarget | Udp6TransportTarget:
+        if self._target is None:
+            target_cls = Udp6TransportTarget if ":" in self.host else UdpTransportTarget
             try:
-                value = await self._call_with_retries(
-                    lambda wrapper=wrapper: wrapper.get(normalized)
+                self._target = await target_cls.create(
+                    (self.host, self.port), timeout=self.timeout, retries=self.retries
                 )
-                return self._normalize_value(value)
-            except ApcSnmpError as err:
-                last_err = err
-        raise ApcSnmpError(str(last_err) if last_err else "SNMP get failed")
+            except Exception as err:  # noqa: BLE001 - pysnmp raises plain errors for DNS failures
+                raise ApcSnmpError(f"Cannot resolve {self.host}: {err}") from err
+        return self._target
+
+    @staticmethod
+    def _raise_indication(indication: Any) -> None:
+        if type(indication).__name__ in _AUTH_ERRORS:
+            raise ApcSnmpAuthError(str(indication))
+        raise ApcSnmpError(str(indication))
+
+    async def get_many(self, oids: list[str]) -> dict[str, Any]:
+        """Read many scalars; unsupported OIDs come back as None."""
+        result: dict[str, Any] = {}
+        pending = [_normalize(oid) for oid in oids]
+        target = await self._get_target()
+        auth = self._auth()
+        while pending:
+            batch, pending = pending[:GET_BATCH_SIZE], pending[GET_BATCH_SIZE:]
+            while batch:
+                indication, status, index, var_binds = await get_cmd(
+                    self._engine,
+                    auth,
+                    target,
+                    ContextData(),
+                    *(ObjectType(ObjectIdentity(oid)) for oid in batch),
+                )
+                if indication:
+                    self._raise_indication(indication)
+                if status:
+                    # SNMPv1 rejects the whole request when one OID is missing:
+                    # drop the offending varbind and ask again.
+                    position = int(index) - 1
+                    if 0 <= position < len(batch):
+                        result[batch.pop(position)] = None
+                        continue
+                    for oid in batch:
+                        result[oid] = None
+                    break
+                for var_bind in var_binds:
+                    result[_normalize(str(var_bind[0]))] = convert_value(var_bind[1])
+                for oid in batch:
+                    result.setdefault(oid, None)
+                break
+        return result
+
+    async def get(self, oid: str) -> Any:
+        """Read one scalar."""
+        return (await self.get_many([oid])).get(_normalize(oid))
+
+    async def walk(self, root_oid: str, max_rows: int = 1024) -> dict[str, Any]:
+        """Walk a subtree and return {oid: value}."""
+        root = _normalize(root_oid)
+        target = await self._get_target()
+        auth = self._auth()
+        output: dict[str, Any] = {}
+        if self.credentials.version == SNMP_V1:
+            iterator = walk_cmd(
+                self._engine,
+                auth,
+                target,
+                ContextData(),
+                ObjectType(ObjectIdentity(root)),
+                lexicographicMode=False,
+            )
+        else:
+            iterator = bulk_walk_cmd(
+                self._engine,
+                auth,
+                target,
+                ContextData(),
+                0,
+                WALK_REPETITIONS,
+                ObjectType(ObjectIdentity(root)),
+                lexicographicMode=False,
+            )
+        async for indication, status, _index, var_binds in iterator:
+            if indication:
+                self._raise_indication(indication)
+            if status:
+                break
+            for var_bind in var_binds:
+                oid = str(var_bind[0])
+                if not oid.startswith(f"{root}."):
+                    return output
+                value = convert_value(var_bind[1])
+                if value is not None:
+                    output[oid] = value
+            if len(output) >= max_rows:
+                break
+        return output
 
     async def set_integer(self, oid: str, value: int) -> None:
-        normalized = self._normalize_oid(oid)
-        if self.snmp_version == "v3":
-            wrapper = await asyncio.to_thread(self._wrapper, self.community, 3)
-            try:
-                await self._call_with_retries(
-                    lambda wrapper=wrapper: wrapper.set(normalized, XInteger(int(value)))
-                )
-                return
-            except ApcSnmpError as err:
-                raise ApcSnmpError(str(err)) from err
-        last_err: Exception | None = None
-        for mp_model in self._iter_models():
-            wrapper = await asyncio.to_thread(self._wrapper, self.write_community, mp_model)
-            try:
-                await self._call_with_retries(
-                    lambda wrapper=wrapper: wrapper.set(normalized, XInteger(int(value)))
-                )
-                return
-            except ApcSnmpError as err:
-                last_err = err
-        raise ApcSnmpError(str(last_err) if last_err else "SNMP set failed")
-
-    async def walk(self, root_oid: str, max_rows: int = 256) -> dict[str, Any]:
-        normalized = self._normalize_oid(root_oid)
-        if self.snmp_version == "v3":
-            wrapper = await asyncio.to_thread(self._wrapper, self.community, 3)
-            output: dict[str, Any] = {}
-            try:
-                async def _run_walk(wrapper=wrapper, output=output) -> None:
-                    count = 0
-                    async for row in wrapper.walk(normalized):
-                        oid = str(getattr(row, "oid", row[0] if isinstance(row, tuple) else ""))
-                        value = getattr(
-                            row,
-                            "value",
-                            row[1] if isinstance(row, tuple) and len(row) > 1 else None,
-                        )
-                        output[oid] = self._normalize_value(value)
-                        count += 1
-                        if count >= max_rows:
-                            break
-
-                await self._call_with_retries(_run_walk)
-                return output
-            except ApcSnmpError as err:
-                raise ApcSnmpError(str(err)) from err
-        last_err: Exception | None = None
-        for mp_model in self._iter_models():
-            wrapper = await asyncio.to_thread(self._wrapper, self.community, mp_model)
-            output: dict[str, Any] = {}
-            try:
-                async def _run_walk(wrapper=wrapper, output=output) -> None:
-                    count = 0
-                    async for row in wrapper.walk(normalized):
-                        oid = str(getattr(row, "oid", row[0] if isinstance(row, tuple) else ""))
-                        value = getattr(
-                            row,
-                            "value",
-                            row[1] if isinstance(row, tuple) and len(row) > 1 else None,
-                        )
-                        output[oid] = self._normalize_value(value)
-                        count += 1
-                        if count >= max_rows:
-                            break
-
-                await self._call_with_retries(_run_walk)
-                return output
-            except ApcSnmpError as err:
-                last_err = err
-        raise ApcSnmpError(str(last_err) if last_err else "SNMP walk failed")
-
+        """Write an integer value."""
+        target = await self._get_target()
+        indication, status, _index, _var_binds = await set_cmd(
+            self._engine,
+            self._auth(write=True),
+            target,
+            ContextData(),
+            ObjectType(ObjectIdentity(_normalize(oid)), Integer32(int(value))),
+        )
+        if indication:
+            self._raise_indication(indication)
+        if status:
+            raise ApcSnmpError(f"SNMP set {oid} failed: {status.prettyPrint()}")

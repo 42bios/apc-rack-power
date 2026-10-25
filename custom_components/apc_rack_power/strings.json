@@ -1,33 +1,75 @@
 {
   "config": {
+    "flow_title": "{host}",
     "step": {
       "user": {
-        "title": "APC Rack Power device",
-        "description": "Connect via SNMP v2c.",
+        "title": "APC network management card",
+        "description": "Connect an APC UPS or Rack PDU through its network management card (NMC).\n\nSNMPv3 is recommended: it authenticates every request and encrypts the traffic. SNMPv1 and SNMPv2c send the community string in plain text.",
         "data": {
-          "host": "Host / IP",
+          "host": "Host",
           "name": "Name",
-          "snmp_version": "SNMP version",
-          "community": "Read community",
-          "write_community": "Write community",
-          "v3_username": "SNMPv3 username",
-          "v3_auth_protocol": "SNMPv3 auth protocol",
-          "v3_auth_passphrase": "SNMPv3 auth passphrase",
-          "v3_priv_protocol": "SNMPv3 privacy protocol",
-          "v3_priv_passphrase": "SNMPv3 privacy passphrase",
           "port": "SNMP port",
-          "scan_interval": "Scan interval (s)",
-          "timeout": "Timeout (s)",
-          "retries": "Retries",
-          "custom_oids": "Custom OIDs (key=oid, one per line)",
-          "pdu_nominal_watts": "PDU nominal watts (for %->W)",
-          "temperature_scale": "Temperature scale"
+          "snmp_version": "SNMP version"
+        },
+        "data_description": {
+          "host": "IP address or host name of the network management card.",
+          "name": "Name of the device in Home Assistant.",
+          "snmp_version": "Must be enabled on the card (Configuration → Network → SNMPv1 / SNMPv3)."
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure connection",
+        "description": "Change the address, port or SNMP version. The credentials follow in the next step.",
+        "data": {
+          "host": "Host",
+          "port": "SNMP port",
+          "snmp_version": "SNMP version"
+        },
+        "data_description": {
+          "snmp_version": "SNMPv3 is recommended; v1/v2c transmit the community in plain text."
+        }
+      },
+      "community": {
+        "title": "Community strings ({version})",
+        "description": "Enter the community strings configured on the network card.\n\n**Security notice:** {version} sends the community string and all values in plain text, and anyone who knows the write community can switch outlets. If your card supports it, use **SNMPv3** with authentication and encryption (for example SHA-256 and AES) instead. You can switch later via *Reconfigure*.",
+        "data": {
+          "community": "Read community",
+          "write_community": "Write community"
+        },
+        "data_description": {
+          "community": "Community with read access (the card's default is \"public\").",
+          "write_community": "Needed to switch outlets, run self tests and change settings. Leave empty to use the read community."
+        }
+      },
+      "v3": {
+        "title": "SNMPv3 credentials",
+        "description": "Enter an SNMPv3 user of the network card. Use authentication and privacy (authPriv) for full protection.",
+        "data": {
+          "v3_username": "User name",
+          "v3_auth_protocol": "Authentication protocol",
+          "v3_auth_passphrase": "Authentication passphrase",
+          "v3_priv_protocol": "Privacy protocol",
+          "v3_priv_passphrase": "Privacy passphrase"
+        },
+        "data_description": {
+          "v3_auth_protocol": "Must match the user's setting on the card. SHA-256 or stronger is recommended where supported.",
+          "v3_priv_protocol": "Must match the user's setting on the card. For AES-192/256 there are two key formats; if one fails, try the other.",
+          "v3_auth_passphrase": "At least 8 characters.",
+          "v3_priv_passphrase": "At least 8 characters."
         }
       }
     },
     "error": {
-      "cannot_connect": "Cannot connect to device via SNMP",
-      "invalid_auth": "Invalid SNMPv3 authentication/privacy configuration"
+      "cannot_connect": "No SNMP response. Check address, port, SNMP version and the card's access control list.",
+      "invalid_auth": "The card rejected the SNMPv3 credentials.",
+      "username_required": "A user name is required.",
+      "passphrase_too_short": "The passphrase must have at least 8 characters.",
+      "priv_requires_auth": "Encryption requires an authentication protocol."
+    },
+    "abort": {
+      "already_configured": "This device is already configured.",
+      "reconfigure_successful": "The connection was updated.",
+      "reauth_successful": "The credentials were updated."
     }
   },
   "options": {
@@ -35,79 +77,545 @@
       "init": {
         "title": "APC Rack Power options",
         "data": {
-          "scan_interval": "Scan interval (s)",
-          "timeout": "Timeout (s)",
+          "scan_interval": "Scan interval",
+          "timeout": "Timeout",
           "retries": "Retries",
-          "custom_oids": "Custom OIDs (key=oid, one per line)",
-          "snmp_version": "SNMP version",
-          "community": "Read community",
-          "write_community": "Write community",
-          "v3_username": "SNMPv3 username",
-          "v3_auth_protocol": "SNMPv3 auth protocol",
-          "v3_auth_passphrase": "SNMPv3 auth passphrase",
-          "v3_priv_protocol": "SNMPv3 privacy protocol",
-          "v3_priv_passphrase": "SNMPv3 privacy passphrase",
-          "pdu_nominal_watts": "PDU nominal watts (for %->W)",
-          "temperature_scale": "Temperature scale"
+          "custom_oids": "Custom OIDs",
+          "trap_enabled": "Receive SNMP traps",
+          "trap_port": "Trap port (UDP)",
+          "trap_community": "Trap community"
+        },
+        "data_description": {
+          "custom_oids": "One per line as key=oid, for example ups_custom=.1.3.6.1.4.1.318.1.1.1.2.2.4.0",
+          "trap_enabled": "Poll immediately and fire an event when the card sends a trap. Add Home Assistant as trap receiver on the card (Configuration → Notification → Trap Receivers).",
+          "trap_port": "162 is the standard port. Use a port above 1024 if Home Assistant cannot open 162 and configure the same port on the card.",
+          "trap_community": "Community the card uses for traps. Leave empty to accept any community from this device."
         }
+      }
+    }
+  },
+  "selector": {
+    "snmp_version": {
+      "options": {
+        "v3": "SNMPv3 (recommended)",
+        "v2c": "SNMPv2c",
+        "v1": "SNMPv1"
+      }
+    },
+    "auth_protocol": {
+      "options": {
+        "none": "None (noAuthNoPriv)",
+        "md5": "MD5",
+        "sha": "SHA-1",
+        "sha224": "SHA-224",
+        "sha256": "SHA-256",
+        "sha384": "SHA-384",
+        "sha512": "SHA-512"
+      }
+    },
+    "priv_protocol": {
+      "options": {
+        "none": "None",
+        "des": "DES",
+        "3des": "3DES",
+        "aes": "AES-128",
+        "aes192": "AES-192",
+        "aes256": "AES-256",
+        "aes192c": "AES-192 (Cisco/Reeder key format)",
+        "aes256c": "AES-256 (Cisco/Reeder key format)"
       }
     }
   },
   "entity": {
     "sensor": {
-      "sys_name": { "name": "System Name" },
-      "sys_descr": { "name": "System Description" },
-      "apc_model_number": { "name": "Model Number" },
-      "sys_uptime_ticks": { "name": "System Uptime" },
-      "ups_ident_model": { "name": "UPS Model" },
-      "ups_sku": { "name": "UPS SKU" },
-      "ups_ident_name": { "name": "UPS Name" },
-      "ups_battery_status": { "name": "Battery Status" },
-      "ups_seconds_on_battery": { "name": "Seconds On Battery" },
-      "ups_minutes_remaining": { "name": "Minutes Remaining" },
-      "ups_charge_remaining": { "name": "Charge Remaining" },
-      "ups_battery_voltage": { "name": "Battery Voltage" },
-      "ups_battery_current": { "name": "Battery Current" },
-      "ups_battery_temp": { "name": "Battery Temperature" },
-      "ups_input_line_bads": { "name": "Input Line Bads" },
-      "ups_input_frequency": { "name": "Input Frequency" },
-      "ups_input_voltage": { "name": "Input Voltage" },
-      "ups_output_source": { "name": "Output Source" },
-      "ups_output_frequency": { "name": "Output Frequency" },
-      "ups_output_voltage": { "name": "Output Voltage" },
-      "ups_output_current": { "name": "Output Current" },
-      "ups_output_load": { "name": "Output Load" },
-      "ups_alarms_present": { "name": "Alarms Present" },
-      "ups_test_result": { "name": "Self Test Result" },
-      "pdu_device_num_outlets": { "name": "PDU Outlet Count" },
-      "pdu_device_load": { "name": "PDU Load" },
-      "pdu_device_load_percent": { "name": "PDU Load (%)" },
-      "pdu_device_power": { "name": "PDU Power" },
-      "pdu_energy_kwh": { "name": "PDU Energy" },
-      "pdu_peak_power_kw": { "name": "PDU Peak Power" },
-      "pdu_phase_voltage": { "name": "PDU Phase Voltage" },
-      "pdu_phase_current": { "name": "PDU Phase Current" },
-      "pdu_phase_power_kw": { "name": "PDU Power" },
-      "pdu_power_factor": { "name": "PDU Power Factor" },
-      "pdu_peak_current": { "name": "PDU Peak Current" },
-      "pdu_env_temperature": { "name": "PDU Temperature" },
-      "pdu_env_humidity": { "name": "PDU Humidity" },
-      "pdu_name": { "name": "PDU Name" },
-      "pdu_location": { "name": "PDU Location" },
-      "pdu_model_number": { "name": "PDU Model Number" },
-      "pdu_serial_number": { "name": "PDU Serial Number" },
-      "pdu_contact": { "name": "PDU Contact" },
-      "pdu_firmware_rpdu": { "name": "Rack PDU Firmware" },
-      "pdu_firmware_bootmon": { "name": "Boot Monitor Firmware" },
-      "pdu_nps_status": { "name": "PDU NPS Status" },
-      "pdu_load_watts": { "name": "PDU Load (Watts)" },
-      "pdu_bank_count": { "name": "PDU Bank Count" },
-      "pdu_current_raw": { "name": "PDU Current Raw" },
-      "pdu_power_raw": { "name": "PDU Power Raw" },
-      "custom_metric": { "name": "Custom Metric" },
-      "discovered_controls": { "name": "Discovered Controls" }
+      "sys_name": {
+        "name": "System name"
+      },
+      "sys_descr": {
+        "name": "System description"
+      },
+      "apc_model_number": {
+        "name": "Network card model"
+      },
+      "sys_uptime_ticks": {
+        "name": "System uptime"
+      },
+      "ups_ident_model": {
+        "name": "UPS model"
+      },
+      "ups_sku": {
+        "name": "UPS SKU"
+      },
+      "ups_ident_name": {
+        "name": "UPS name"
+      },
+      "ups_battery_status": {
+        "name": "Battery status",
+        "state": {
+          "unknown": "Unknown",
+          "normal": "Normal",
+          "low": "Low",
+          "depleted": "Depleted",
+          "fault": "Fault",
+          "not_present": "No battery"
+        }
+      },
+      "ups_charge_remaining": {
+        "name": "Battery charge"
+      },
+      "ups_minutes_remaining": {
+        "name": "Runtime remaining"
+      },
+      "ups_seconds_on_battery": {
+        "name": "Time on battery"
+      },
+      "ups_battery_voltage": {
+        "name": "Battery voltage"
+      },
+      "ups_battery_current": {
+        "name": "Battery current"
+      },
+      "ups_battery_temp": {
+        "name": "Battery temperature"
+      },
+      "ups_battery_last_replaced": {
+        "name": "Battery installed"
+      },
+      "ups_battery_replace_by": {
+        "name": "Battery replacement due"
+      },
+      "ups_battery_packs": {
+        "name": "External battery packs"
+      },
+      "ups_battery_bad_packs": {
+        "name": "Defective battery packs"
+      },
+      "ups_external_battery_model": {
+        "name": "External battery model"
+      },
+      "ups_input_voltage": {
+        "name": "Input voltage"
+      },
+      "ups_input_frequency": {
+        "name": "Input frequency"
+      },
+      "ups_input_line_bads": {
+        "name": "Input failures"
+      },
+      "ups_last_transfer_cause": {
+        "name": "Last transfer cause",
+        "state": {
+          "no_transfer": "No transfer",
+          "high_line_voltage": "High line voltage",
+          "brownout": "Brownout",
+          "blackout": "Blackout",
+          "small_momentary_sag": "Small momentary sag",
+          "deep_momentary_sag": "Deep momentary sag",
+          "small_momentary_spike": "Small momentary spike",
+          "large_momentary_spike": "Large momentary spike",
+          "self_test": "Self test",
+          "rate_of_voltage_change": "Rate of voltage change"
+        }
+      },
+      "ups_output_source": {
+        "name": "Output source",
+        "state": {
+          "other": "Other",
+          "none": "None",
+          "normal": "Mains",
+          "bypass": "Bypass",
+          "battery": "Battery",
+          "booster": "Booster",
+          "reducer": "Reducer"
+        }
+      },
+      "ups_output_status": {
+        "name": "Output status",
+        "state": {
+          "unknown": "Unknown",
+          "on_line": "Online",
+          "on_battery": "On battery",
+          "on_smart_boost": "SmartBoost",
+          "timed_sleeping": "Timed sleeping",
+          "software_bypass": "Software bypass",
+          "off": "Off",
+          "rebooting": "Rebooting",
+          "switched_bypass": "Switched bypass",
+          "hardware_failure_bypass": "Bypass (hardware failure)",
+          "sleeping_until_power_return": "Sleeping until power returns",
+          "on_smart_trim": "SmartTrim",
+          "eco_mode": "Eco mode",
+          "hot_standby": "Hot standby",
+          "on_battery_test": "Battery test",
+          "emergency_static_bypass": "Emergency static bypass",
+          "static_bypass_standby": "Static bypass standby",
+          "power_saving_mode": "Power saving mode",
+          "spot_mode": "Spot mode",
+          "e_conversion": "eConversion",
+          "charger_spot_mode": "Charger spot mode",
+          "inverter_spot_mode": "Inverter spot mode",
+          "active_load": "Active load",
+          "battery_discharge_spot_mode": "Battery discharge spot mode",
+          "inverter_standby": "Inverter standby",
+          "charger_only": "Charger only",
+          "distributed_energy_reserve": "Distributed energy reserve",
+          "self_test": "Self test"
+        }
+      },
+      "ups_output_voltage": {
+        "name": "Output voltage"
+      },
+      "ups_output_frequency": {
+        "name": "Output frequency"
+      },
+      "ups_output_current": {
+        "name": "Output current"
+      },
+      "ups_output_load": {
+        "name": "Output load"
+      },
+      "ups_output_power": {
+        "name": "Output power"
+      },
+      "ups_output_apparent_power": {
+        "name": "Output apparent power"
+      },
+      "ups_output_energy": {
+        "name": "Output energy"
+      },
+      "ups_efficiency": {
+        "name": "Efficiency"
+      },
+      "ups_alarms_present": {
+        "name": "Active alarms"
+      },
+      "ups_test_result": {
+        "name": "Self test result",
+        "state": {
+          "passed": "Passed",
+          "warning": "Warning",
+          "error": "Error",
+          "aborted": "Aborted",
+          "in_progress": "In progress",
+          "none": "No test yet"
+        }
+      },
+      "ups_last_self_test": {
+        "name": "Last self test"
+      },
+      "ups_calibration_result": {
+        "name": "Runtime calibration result",
+        "state": {
+          "ok": "OK",
+          "invalid": "Invalid",
+          "in_progress": "In progress",
+          "refused": "Refused",
+          "aborted": "Aborted",
+          "pending": "Pending",
+          "unknown": "Unknown"
+        }
+      },
+      "ups_last_calibration": {
+        "name": "Last runtime calibration"
+      },
+      "pdu_device_num_outlets": {
+        "name": "Outlet count"
+      },
+      "pdu_load_watts": {
+        "name": "Power"
+      },
+      "pdu_apparent_power": {
+        "name": "Apparent power"
+      },
+      "pdu_device_load_percent": {
+        "name": "Load"
+      },
+      "pdu_load_state": {
+        "name": "Load state",
+        "state": {
+          "low_load": "Low load",
+          "normal": "Normal",
+          "near_overload": "Near overload",
+          "overload": "Overload"
+        }
+      },
+      "pdu_energy_kwh": {
+        "name": "Energy"
+      },
+      "pdu_peak_power_kw": {
+        "name": "Peak power"
+      },
+      "pdu_power_factor": {
+        "name": "Power factor"
+      },
+      "pdu_phase_current": {
+        "name": "Phase current"
+      },
+      "pdu_phase_voltage": {
+        "name": "Phase voltage"
+      },
+      "pdu_phase_power_kw": {
+        "name": "Phase power"
+      },
+      "pdu_peak_current": {
+        "name": "Peak current"
+      },
+      "pdu_phase_load_state": {
+        "name": "Phase load state",
+        "state": {
+          "low_load": "Low load",
+          "normal": "Normal",
+          "near_overload": "Near overload",
+          "overload": "Overload"
+        }
+      },
+      "phase_current": {
+        "name": "Phase {phase} current"
+      },
+      "phase_voltage": {
+        "name": "Phase {phase} voltage"
+      },
+      "phase_power": {
+        "name": "Phase {phase} power"
+      },
+      "phase_peak_current": {
+        "name": "Phase {phase} peak current"
+      },
+      "phase_load_state": {
+        "name": "Phase {phase} load state",
+        "state": {
+          "low_load": "Low load",
+          "normal": "Normal",
+          "near_overload": "Near overload",
+          "overload": "Overload"
+        }
+      },
+      "bank_current": {
+        "name": "Bank {bank} current"
+      },
+      "bank_load_state": {
+        "name": "Bank {bank} load state",
+        "state": {
+          "low_load": "Low load",
+          "normal": "Normal",
+          "near_overload": "Near overload",
+          "overload": "Overload"
+        }
+      },
+      "outlet_power": {
+        "name": "{outlet} power"
+      },
+      "outlet_current": {
+        "name": "{outlet} current"
+      },
+      "outlet_energy": {
+        "name": "{outlet} energy"
+      },
+      "pdu_env_temperature": {
+        "name": "Temperature"
+      },
+      "pdu_env_humidity": {
+        "name": "Humidity"
+      },
+      "probe_temperature": {
+        "name": "{name} temperature"
+      },
+      "probe_humidity": {
+        "name": "{name} humidity"
+      },
+      "pdu_name": {
+        "name": "PDU name"
+      },
+      "pdu_location": {
+        "name": "Location"
+      },
+      "pdu_contact": {
+        "name": "Contact"
+      },
+      "pdu_model_number": {
+        "name": "PDU model"
+      },
+      "pdu_serial_number": {
+        "name": "PDU serial number"
+      },
+      "pdu_firmware_rpdu": {
+        "name": "PDU firmware"
+      },
+      "pdu_firmware_bootmon": {
+        "name": "Boot monitor firmware"
+      },
+      "pdu_bank_count": {
+        "name": "Bank count"
+      },
+      "pdu_nps_status": {
+        "name": "Network port sharing",
+        "state": {
+          "not_nps": "Not used",
+          "host": "Host",
+          "guest": "Guest"
+        }
+      },
+      "discovered_controls": {
+        "name": "Discovered controls"
+      },
+      "custom_metric": {
+        "name": "Custom {key}"
+      }
+    },
+    "binary_sensor": {
+      "ups_on_battery": {
+        "name": "On battery"
+      },
+      "ups_low_battery": {
+        "name": "Low battery"
+      },
+      "ups_replace_battery": {
+        "name": "Replace battery"
+      },
+      "ups_overload": {
+        "name": "Overload"
+      },
+      "ups_alarm": {
+        "name": "Alarm"
+      },
+      "ups_bypass": {
+        "name": "Bypass"
+      },
+      "ups_self_test_running": {
+        "name": "Self test running"
+      },
+      "ups_calibration_running": {
+        "name": "Runtime calibration running"
+      },
+      "ups_communication": {
+        "name": "UPS communication"
+      },
+      "pdu_overload": {
+        "name": "Overload"
+      },
+      "pdu_near_overload": {
+        "name": "Near overload"
+      },
+      "pdu_power_supply_alarm": {
+        "name": "Power supply alarm"
+      }
+    },
+    "button": {
+      "ups_self_test": {
+        "name": "Start self test"
+      },
+      "ups_calibration_start": {
+        "name": "Start runtime calibration"
+      },
+      "ups_calibration_cancel": {
+        "name": "Cancel runtime calibration"
+      },
+      "ups_identify": {
+        "name": "Flash and beep"
+      },
+      "outlet_reboot": {
+        "name": "{name} reboot"
+      },
+      "outlet_group_reboot": {
+        "name": "{name} reboot"
+      }
+    },
+    "select": {
+      "ups_alarm_beeper": {
+        "name": "Alarm beeper",
+        "state": {
+          "timed": "Timed",
+          "at_low_battery": "At low battery",
+          "never": "Never",
+          "mute": "Muted"
+        }
+      }
+    },
+    "switch": {
+      "outlet": {
+        "name": "{name}"
+      },
+      "outlet_default": {
+        "name": "{name}"
+      },
+      "outlet_group": {
+        "name": "{name}"
+      }
+    }
+  },
+  "exceptions": {
+    "no_data": {
+      "message": "The device answered without any APC values. Check the SNMP access settings."
+    },
+    "auth_failed": {
+      "message": "The device rejected the SNMPv3 credentials: {error}"
+    },
+    "update_failed": {
+      "message": "Cannot read the device: {error}"
+    },
+    "write_failed": {
+      "message": "The device did not accept the command: {error}"
+    },
+    "reboot_not_supported": {
+      "message": "This outlet does not support a reboot command."
+    },
+    "unknown_entry": {
+      "message": "No loaded APC Rack Power entry with id {entry_id}."
+    },
+    "unknown_control": {
+      "message": "No outlet or outlet group with uid {control_uid}."
+    }
+  },
+  "issues": {
+    "battery_replace": {
+      "title": "Replace the battery of {name}",
+      "description": "The UPS {name} reports that its battery needs replacing. After the replacement, update the battery installation date on the network management card so the warning clears."
+    },
+    "write_failed": {
+      "title": "{name} rejects commands",
+      "description": "A command to {name} failed. Check that the write community (SNMPv1/v2c) or the SNMPv3 user has write access on the network management card, and that Home Assistant is allowed in the card's access control list. Change the credentials via Reconfigure."
+    },
+    "trap_port": {
+      "title": "Cannot receive SNMP traps for {name}",
+      "description": "Home Assistant cannot listen on UDP port {port} ({error}). Choose a port above 1024 in the options and configure the same port as trap receiver on the network card."
+    }
+  },
+  "services": {
+    "set_oid": {
+      "name": "Set SNMP OID",
+      "description": "Writes an integer value to a writable OID of the device.",
+      "fields": {
+        "entry_id": {
+          "name": "Device",
+          "description": "The APC Rack Power entry."
+        },
+        "oid": {
+          "name": "OID",
+          "description": "Numeric OID, for example .1.3.6.1.4.1.318.1.1.1.7.2.2.0"
+        },
+        "value": {
+          "name": "Value",
+          "description": "Integer value to write."
+        }
+      }
+    },
+    "control_action": {
+      "name": "Control outlet",
+      "description": "Switches an outlet or outlet group on or off, or reboots it.",
+      "fields": {
+        "entry_id": {
+          "name": "Device",
+          "description": "The APC Rack Power entry."
+        },
+        "control_uid": {
+          "name": "Control",
+          "description": "uid of the outlet (see the attributes of the switch or the Discovered controls sensor)."
+        },
+        "action": {
+          "name": "Action",
+          "description": "on, off or cycle (reboot)."
+        }
+      }
     }
   }
 }
-
-
