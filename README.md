@@ -11,6 +11,8 @@ Home Assistant custom integration for APC UPS and Rack PDU devices via SNMP (v2c
 
 <img src="https://raw.githubusercontent.com/42bios/apc-rack-power/main/custom_components/apc_rack_power/brand/logo.png" alt="APC Rack Power Logo" width="160">
 
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=42bios&repository=apc-rack-power&category=integration)
+
 > **Disclaimer:** This is an unofficial, community-maintained integration and is not affiliated with, endorsed by, or supported by APC or Schneider Electric. All product names, logos, and brands are property of their respective owners and are used for identification purposes only.
 
 ## Highlights
@@ -32,8 +34,6 @@ The design goal is simple:
 - Stay vendor-focused and reliable for APC SNMP implementations
 
 ## HACS Installation (Recommended)
-
-[![Open your Home Assistant instance and open the APC Rack Power repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=42bios&repository=apc-rack-power&category=integration)
 
 1. Open HACS in Home Assistant.
 2. Go to `Integrations`.
