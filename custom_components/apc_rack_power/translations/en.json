@@ -52,8 +52,8 @@
           "v3_priv_passphrase": "Privacy passphrase"
         },
         "data_description": {
-          "v3_auth_protocol": "Must match the user's setting on the card. SHA-256 or stronger is recommended where supported.",
-          "v3_priv_protocol": "Must match the user's setting on the card. For AES-192/256 there are two key formats; if one fails, try the other.",
+          "v3_auth_protocol": "Must match the user on the card. APC cards usually offer SHA (SHA-1) and MD5; choose SHA. SHA-2 variants only if your card lists them.",
+          "v3_priv_protocol": "Must match the user on the card. Choose AES (AES-128); avoid DES. For AES-192/256 there are two key formats; if one fails, try the other.",
           "v3_auth_passphrase": "At least 8 characters.",
           "v3_priv_passphrase": "At least 8 characters."
         }
@@ -132,7 +132,7 @@
       "options": {
         "none": "None (noAuthNoPriv)",
         "md5": "MD5",
-        "sha": "SHA-1",
+        "sha": "SHA-1 (APC: \"SHA\")",
         "sha224": "SHA-224",
         "sha256": "SHA-256",
         "sha384": "SHA-384",
@@ -142,9 +142,9 @@
     "priv_protocol": {
       "options": {
         "none": "None",
-        "des": "DES",
+        "des": "DES (insecure)",
         "3des": "3DES",
-        "aes": "AES-128",
+        "aes": "AES-128 (APC: \"AES\")",
         "aes192": "AES-192",
         "aes256": "AES-256",
         "aes192c": "AES-192 (Cisco/Reeder key format)",

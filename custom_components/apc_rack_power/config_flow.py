@@ -107,7 +107,7 @@ def _v3_schema(defaults: Mapping[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
             vol.Required(CONF_V3_USERNAME, default=defaults.get(CONF_V3_USERNAME, "")): _TEXT,
-            vol.Required(CONF_V3_AUTH_PROTOCOL, default=defaults.get(CONF_V3_AUTH_PROTOCOL, "sha256")): _select(
+            vol.Required(CONF_V3_AUTH_PROTOCOL, default=defaults.get(CONF_V3_AUTH_PROTOCOL, "sha")): _select(
                 AUTH_PROTOCOLS, "auth_protocol"
             ),
             vol.Optional(CONF_V3_AUTH_PASSPHRASE, default=defaults.get(CONF_V3_AUTH_PASSPHRASE, "")): _PASSWORD,

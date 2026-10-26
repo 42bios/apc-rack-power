@@ -65,7 +65,7 @@ Requires Home Assistant 2025.7 or newer.
 APC cards that request an address via DHCP are discovered automatically and show up under `Settings -> Devices & Services`.
 
 ### Why SNMPv3?
-SNMPv1 and SNMPv2c send the community string and all values in plain text. Anyone on the network who sees one request knows the community, and the write community allows switching outlets off. SNMPv3 with `authPriv` authenticates every request and encrypts the traffic. Use SHA-256 (or stronger) and AES where the card supports it; older NMC2 cards only offer MD5/SHA-1 and DES/AES-128.
+SNMPv1 and SNMPv2c send the community string and all values in plain text. Anyone on the network who sees one request knows the community, and the write community allows switching outlets off. SNMPv3 with `authPriv` authenticates every request and encrypts the traffic. Most APC cards (including the AP9641 tested here) offer only SHA (SHA-1) or MD5 and AES (AES-128) or DES: choose SHA and AES. Use the SHA-2 and AES-192/256 options only if your card lists them.
 
 For AES-192/256 two key formats exist. The default entries use the Blumenthal format (net-snmp). If the card rejects them, try the "Cisco/Reeder" variants.
 
