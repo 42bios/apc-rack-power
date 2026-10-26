@@ -2,77 +2,103 @@
 
 from __future__ import annotations
 
+from datetime import date
 import re
 from typing import Any
 
-DEVICE_PDU = "pdu"
-DEVICE_UPS = "ups"
-DEVICE_MIXED = "mixed"
+from .const import DEVICE_MIXED, DEVICE_PDU, DEVICE_UPS
 
 _MODEL_RE = re.compile(r"\bMN:\s*([A-Za-z0-9_-]+)")
+_DATE_RE = re.compile(r"^\s*(\d{1,2})/(\d{1,2})/(\d{2}|\d{4})\s*$")
+_MAC_RE = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
+_UNAVAILABLE_TEXT = {"", "unknown", "unbekannt", "not available", "not supported", "n/a"}
+
+# sysObjectID prefixes of APC products (PowerNet-MIB "products" branch)
+_OID_UPS = ("1.3.6.1.4.1.318.1.3.2.", "1.3.6.1.4.1.318.1.3.27")
+_OID_PDU = ("1.3.6.1.4.1.318.1.3.4.", "1.3.6.1.4.1.318.1.3.32.")
 
 
 def is_unavailable(value: Any) -> bool:
-    """Return True for sentinel values that mean not available."""
+    """Return True for values that mean "not available"."""
     if value is None:
         return True
-    if isinstance(value, (int, float)) and float(value) == -1:
-        return True
-    return isinstance(value, str) and value.strip().lower() in {"unknown", "unbekannt", "not available"}
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, (int, float)):
+        return float(value) == -1
+    return isinstance(value, str) and value.strip().lower() in _UNAVAILABLE_TEXT
 
 
 def extract_model_number(metrics: dict[str, Any]) -> str | None:
-    """Extract APC model number from sysDescr (e.g. MN:AP9641)."""
+    """Extract the network card model from sysDescr (e.g. MN:AP9641)."""
     sys_descr = metrics.get("sys_descr")
     if not isinstance(sys_descr, str):
         return None
     match = _MODEL_RE.search(sys_descr)
-    if not match:
-        return None
-    value = match.group(1).strip()
-    return value or None
+    return match.group(1).strip() if match else None
 
 
 def detect_device_kind(metrics: dict[str, Any]) -> str:
-    """Return detected device class: pdu, ups or mixed."""
-    desc = str(metrics.get("sys_descr") or "").lower()
-    model = str(metrics.get("ups_ident_model") or "").lower()
-    ups_score = 0
-    pdu_score = 0
-
-    if "rack power distribution unit" in desc or "rpdu" in desc or "ap89" in desc:
+    """Return the device class: pdu, ups or mixed."""
+    has_pdu = not is_unavailable(metrics.get("pdu_model_number")) or not is_unavailable(
+        metrics.get("pdu_device_num_outlets")
+    )
+    has_ups = any(
+        not is_unavailable(metrics.get(key))
+        for key in ("ups_ident_model", "ups_sku", "rfc_output_source", "apc_output_status")
+    )
+    if has_pdu and not has_ups:
         return DEVICE_PDU
-    if "smart-ups" in model or ("ups" in model and "rack power" not in model):
+    if has_ups and not has_pdu:
         return DEVICE_UPS
-
-    pdu_outlets = metrics.get("pdu_device_num_outlets")
-    if isinstance(pdu_outlets, (int, float)) and int(pdu_outlets) > 0:
-        pdu_score += 2
-
-    for key in ("ups_output_voltage", "ups_output_current", "ups_charge_remaining", "ups_ident_model", "ups_sku"):
-        if not is_unavailable(metrics.get(key)):
-            ups_score += 1
-    for key in (
-        "pdu_phase_voltage",
-        "pdu_phase_current",
-        "pdu_device_load_percent",
-        "pdu_model_number",
-    ):
-        if not is_unavailable(metrics.get(key)):
-            pdu_score += 1
-
-    if pdu_score > ups_score:
+    object_id = str(metrics.get("sys_object_id") or "")
+    if object_id.startswith(_OID_PDU):
         return DEVICE_PDU
-    if ups_score > pdu_score:
+    if object_id.startswith(_OID_UPS):
+        return DEVICE_UPS
+    desc = str(metrics.get("sys_descr") or "").lower()
+    if "rack power distribution unit" in desc or "rpdu" in desc:
+        return DEVICE_PDU
+    if has_ups:
         return DEVICE_UPS
     return DEVICE_MIXED
 
 
-def table_matches_device(device_kind: str, table_key: str) -> bool:
-    """Whether a control table belongs to the detected device kind."""
-    if device_kind == DEVICE_PDU:
-        return table_key in {"rpdu2_outlet", "spdu_outlet"}
-    if device_kind == DEVICE_UPS:
-        return table_key == "ups_outlet_group"
-    return True
+def kind_matches(device_kind: str, kind: str | None) -> bool:
+    """Whether something that belongs to `kind` applies to the device."""
+    return kind is None or device_kind in (kind, DEVICE_MIXED)
 
+
+def parse_flags(value: Any) -> str | None:
+    """Return the 0/1 flag string of upsBasicStateOutputState, if valid."""
+    if isinstance(value, str) and len(value) >= 30 and set(value) <= {"0", "1"}:
+        return value
+    return None
+
+
+def flag(flags: str | None, position: int) -> bool | None:
+    """Read one flag (1-based)."""
+    if flags is None or len(flags) < position:
+        return None
+    return flags[position - 1] == "1"
+
+
+def parse_apc_date(value: Any) -> date | None:
+    """Parse APC dates in mm/dd/yy or mm/dd/yyyy format."""
+    if not isinstance(value, str):
+        return None
+    match = _DATE_RE.match(value)
+    if not match:
+        return None
+    month, day, year = (int(part) for part in match.groups())
+    if year < 100:
+        year += 2000
+    try:
+        return date(year, month, day)
+    except ValueError:
+        return None
+
+
+def is_mac(value: Any) -> bool:
+    """Whether a unique id is a MAC address (and not a legacy host)."""
+    return isinstance(value, str) and bool(_MAC_RE.match(value))

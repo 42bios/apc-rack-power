@@ -1,16 +1,17 @@
 {
   "domain": "apc_rack_power",
   "name": "APC Rack Power",
-  "codeowners": [
-    "@42bios"
-  ],
+  "codeowners": ["@42bios"],
   "config_flow": true,
+  "dhcp": [
+    { "macaddress": "00C0B7*" },
+    { "macaddress": "282986*" }
+  ],
   "documentation": "https://github.com/42bios/apc-rack-power",
+  "integration_type": "device",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/42bios/apc-rack-power/issues",
-  "requirements": [
-    "puresnmp>=2.0.0,<3.0.0"
-  ],
-  "version": "0.3.3"
+  "loggers": ["pysnmp"],
+  "requirements": ["pysnmp>=7.1.17"],
+  "version": "0.4.0"
 }
-

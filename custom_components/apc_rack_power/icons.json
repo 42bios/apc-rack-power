@@ -1,0 +1,54 @@
+{
+  "entity": {
+    "sensor": {
+      "ups_battery_status": { "default": "mdi:battery-heart-variant" },
+      "ups_minutes_remaining": { "default": "mdi:timer-sand" },
+      "ups_seconds_on_battery": { "default": "mdi:timer-outline" },
+      "ups_battery_last_replaced": { "default": "mdi:battery-check" },
+      "ups_battery_replace_by": { "default": "mdi:battery-clock" },
+      "ups_battery_packs": { "default": "mdi:car-battery" },
+      "ups_battery_bad_packs": { "default": "mdi:battery-alert" },
+      "ups_input_line_bads": { "default": "mdi:flash-alert" },
+      "ups_last_transfer_cause": { "default": "mdi:transit-connection-variant" },
+      "ups_output_source": {
+        "default": "mdi:power-plug",
+        "state": { "battery": "mdi:battery-arrow-down", "bypass": "mdi:call-split" }
+      },
+      "ups_output_status": { "default": "mdi:power-settings" },
+      "ups_output_load": { "default": "mdi:gauge" },
+      "ups_efficiency": { "default": "mdi:percent-circle" },
+      "ups_alarms_present": { "default": "mdi:alarm-light" },
+      "ups_test_result": { "default": "mdi:clipboard-check-outline" },
+      "ups_last_self_test": { "default": "mdi:calendar-check" },
+      "ups_calibration_result": { "default": "mdi:tune-vertical" },
+      "ups_last_calibration": { "default": "mdi:calendar-clock" },
+      "pdu_device_load_percent": { "default": "mdi:gauge" },
+      "pdu_load_state": { "default": "mdi:gauge" },
+      "pdu_phase_load_state": { "default": "mdi:gauge" },
+      "phase_load_state": { "default": "mdi:gauge" },
+      "bank_load_state": { "default": "mdi:gauge" },
+      "pdu_device_num_outlets": { "default": "mdi:power-socket-eu" },
+      "discovered_controls": { "default": "mdi:magnify-scan" },
+      "custom_metric": { "default": "mdi:code-braces" }
+    },
+    "binary_sensor": {
+      "ups_on_battery": { "default": "mdi:power-plug", "state": { "on": "mdi:battery-arrow-down" } },
+      "ups_bypass": { "default": "mdi:arrow-right", "state": { "on": "mdi:call-split" } }
+    },
+    "button": {
+      "ups_self_test": { "default": "mdi:clipboard-play-outline" },
+      "ups_calibration_start": { "default": "mdi:tune-vertical" },
+      "ups_calibration_cancel": { "default": "mdi:cancel" }
+    },
+    "select": {
+      "ups_alarm_beeper": { "default": "mdi:volume-high", "state": { "mute": "mdi:volume-off", "never": "mdi:volume-off" } }
+    },
+    "switch": {
+      "outlet_group": { "default": "mdi:power-socket-eu" }
+    }
+  },
+  "services": {
+    "set_oid": { "service": "mdi:pencil" },
+    "control_action": { "service": "mdi:power-socket-eu" }
+  }
+}

@@ -1,118 +1,67 @@
-"""Switches for APC Rack Power integration."""
+"""Switches for APC Rack Power: PDU outlets and UPS outlet groups."""
 
 from __future__ import annotations
 
+from collections.abc import Callable, Iterator
 from typing import Any
 
-from homeassistant.components.switch import SwitchEntity
-from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.components.switch import SwitchDeviceClass, SwitchEntity
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import Entity
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
-from . import RUNTIME_COORDINATOR
-from .const import DOMAIN, OFF_VALUES, ON_VALUES
-from .coordinator import ApcEnterpriseCoordinator, ControlPoint
-from .device_profile import detect_device_kind, table_matches_device
+from . import ApcConfigEntry
+from .const import DEVICE_UPS
+from .coordinator import ApcCoordinator, ApcSnapshot, ControlPoint
+from .device_profile import kind_matches
+from .entity import ApcEntity, add_entities_when_found
+
+PARALLEL_UPDATES = 1
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
-    async_add_entities: AddEntitiesCallback,
+    entry: ApcConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up APC control switches."""
-    coordinator: ApcEnterpriseCoordinator = hass.data[DOMAIN][entry.entry_id][RUNTIME_COORDINATOR]
-    created: set[str] = set()
+    """Set up APC outlet switches."""
+    coordinator = entry.runtime_data
 
-    def _build_new_entities() -> list[ApcControlSwitch]:
-        controls = coordinator.data.discovered_controls if coordinator.data else coordinator.controls
-        metrics = coordinator.data.metrics if coordinator.data else {}
-        device_kind = detect_device_kind(metrics)
-        new_entities: list[ApcControlSwitch] = []
-        for control in controls:
-            if not table_matches_device(device_kind, control.table_key):
-                continue
-            if control.uid in created:
-                continue
-            created.add(control.uid)
-            new_entities.append(ApcControlSwitch(entry, coordinator, control))
-        return new_entities
+    def _build(d: ApcSnapshot) -> Iterator[tuple[str, Callable[[], Entity]]]:
+        for control in d.controls:
+            if kind_matches(d.device_kind, control.kind):
+                yield control.uid, lambda control=control: ApcControlSwitch(coordinator, control)
 
-    initial = _build_new_entities()
-    if initial:
-        async_add_entities(initial)
-
-    @callback
-    def _handle_coordinator_update() -> None:
-        new_entities = _build_new_entities()
-        if new_entities:
-            async_add_entities(new_entities)
-
-    entry.async_on_unload(coordinator.async_add_listener(_handle_coordinator_update))
+    add_entities_when_found(coordinator, async_add_entities, _build)
 
 
-class ApcControlSwitch(CoordinatorEntity[ApcEnterpriseCoordinator], SwitchEntity):
-    """One discovered APC control point as switch."""
+class ApcControlSwitch(ApcEntity, SwitchEntity):
+    """One outlet or outlet group."""
 
-    _attr_has_entity_name = True
+    _attr_device_class = SwitchDeviceClass.OUTLET
 
-    def __init__(
-        self,
-        entry: ConfigEntry,
-        coordinator: ApcEnterpriseCoordinator,
-        control: ControlPoint,
-    ) -> None:
-        super().__init__(coordinator)
-        self._entry = entry
+    def __init__(self, coordinator: ApcCoordinator, control: ControlPoint) -> None:
+        super().__init__(coordinator, control.uid, control.module)
         self._control = control
-        self._attr_unique_id = f"{entry.entry_id}_{control.uid}"
-        normalized_name = str(control.name).strip()
-        if normalized_name.lower().startswith("outlet "):
-            self._attr_name = normalized_name
+        name = control.name.strip()
+        if control.kind == DEVICE_UPS:
+            self._attr_translation_key = "outlet_group"
+        elif name.lower().startswith("outlet "):
+            self._attr_translation_key = "outlet_default"
         else:
-            self._attr_name = f"{control.label} {normalized_name}"
+            self._attr_translation_key = "outlet"
+        self._attr_translation_placeholders = {"name": name, "index": control.index}
 
     @property
     def is_on(self) -> bool | None:
-        if not self.coordinator.data:
-            return None
-        value = self.coordinator.data.control_states.get(self._control.uid)
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            value_int = int(value)
-            if value_int in ON_VALUES:
-                return True
-            if value_int in OFF_VALUES:
-                return False
-        return None
-
-    @property
-    def available(self) -> bool:
-        return bool(self.coordinator.last_update_success)
+        return self.snapshot.control_states.get(self._control.uid)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        return {
-            "uid": self._control.uid,
-            "table": self._control.table_key,
-            "index": self._control.index,
-            "status_oid": self._control.status_oid,
-            "control_oid": self._control.control_oid,
-        }
-
-    @property
-    def device_info(self) -> dict[str, Any]:
-        return {
-            "identifiers": {(DOMAIN, self._entry.entry_id)},
-            "name": self._entry.title,
-            "manufacturer": "APC",
-        }
+        return {"uid": self._control.uid, "index": self._control.index}
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_control(self._control, True)
+        await self.coordinator.async_control(self._control, "on")
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        await self.coordinator.async_set_control(self._control, False)
-
+        await self.coordinator.async_control(self._control, "off")
