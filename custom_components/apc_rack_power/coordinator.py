@@ -462,8 +462,11 @@ class ApcCoordinator(DataUpdateCoordinator[ApcSnapshot]):
     def handle_trap(self, trap: TrapInfo) -> None:
         """React to a trap from this device: fire an event and poll at once."""
         self.trap_count += 1
+        # APC traps carry their description in mtrapargsString
+        message = trap.varbinds.get("1.3.6.1.4.1.318.2.3.3.0")
         self.last_trap = {
             "trap_oid": trap.trap_oid,
+            "message": message,
             "varbinds": trap.varbinds,
         }
         self.hass.bus.async_fire(
@@ -472,6 +475,7 @@ class ApcCoordinator(DataUpdateCoordinator[ApcSnapshot]):
                 "entry_id": self.config_entry.entry_id,
                 "host": trap.source,
                 "trap_oid": trap.trap_oid,
+                "message": message,
                 "varbinds": trap.varbinds,
             },
         )

@@ -73,8 +73,10 @@ You can move an existing entry to SNMPv3 at any time via `Reconfigure`.
 
 ### SNMP traps (optional)
 1. In the integration options enable `Receive SNMP traps` and keep port 162, or choose a port above 1024 if Home Assistant cannot open port 162.
-2. On the card, add Home Assistant as trap receiver (`Configuration -> Notification -> SNMP Traps -> Trap Receivers`) with the same port and community (SNMPv1 or v2c traps).
-3. Each trap triggers an immediate update and an `apc_rack_power_trap` event with the trap OID and its values, which you can use in automations.
+2. On the card, add Home Assistant as trap receiver (`Configuration -> Notification -> SNMP Traps -> Trap Receivers`) with the same port.
+3. Each trap triggers an immediate update and an `apc_rack_power_trap` event with `entry_id`, `host`, `trap_oid`, `message` (the card's text, e.g. "Rack PDU 1: Outlet #24 on.") and all values, which you can use in automations.
+4. With SNMPv3 entries the card can send SNMPv3 traps: they are verified and decrypted with the entry's user. SNMPv1/v2c traps need the trap community.
+5. A firewall on the Home Assistant host must allow UDP from the card to the trap port.
 
 ## Supported Devices
 The integration reads the standard UPS-MIB (RFC 1628) and the APC PowerNet-MIB and creates entities for what the device answers:

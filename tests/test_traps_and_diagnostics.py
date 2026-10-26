@@ -119,9 +119,12 @@ async def test_trap_fires_event_and_refreshes(hass: HomeAssistant, agent: FakeAg
 
     events: list[Event] = []
     hass.bus.async_listen(EVENT_TRAP, events.append)
-    entry.runtime_data.handle_trap(TrapInfo("192.0.2.10", "1.3.6.1.4.1.318.0.5", {}))
+    entry.runtime_data.handle_trap(
+        TrapInfo("192.0.2.10", "1.3.6.1.4.1.318.0.5", {"1.3.6.1.4.1.318.2.3.3.0": "UPS: On battery power"})
+    )
     await hass.async_block_till_done()
     assert events[0].data["trap_oid"] == "1.3.6.1.4.1.318.0.5"
+    assert events[0].data["message"] == "UPS: On battery power"
     assert entry.runtime_data.trap_count == 1
 
 
