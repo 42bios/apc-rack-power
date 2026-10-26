@@ -85,9 +85,10 @@ class TrapServer:
         ntfrcv.NotificationReceiver(self._engine, self._on_notification)
 
     def stop(self) -> None:
-        if self._transport is not None:
-            self._transport.close_transport()
-            self._transport = None
+        if self._engine is not None:
+            # Closes the transport and stops the dispatcher's timer task
+            self._engine.close_dispatcher()
+        self._transport = None
         self._engine = None
 
     @property

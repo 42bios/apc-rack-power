@@ -57,6 +57,7 @@ async def _send(port: int, auth: Any, engine_id: bytes | None = None) -> None:
         ),
     )
     await asyncio.sleep(0.3)
+    engine.close_dispatcher()
 
 
 @pytest.fixture
