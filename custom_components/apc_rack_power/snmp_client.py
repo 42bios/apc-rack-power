@@ -148,9 +148,11 @@ def convert_value(value: Any) -> Any:
     if isinstance(value, univ.OctetString):
         raw = bytes(value)
         try:
-            return raw.decode("utf-8").strip("\x00").strip()
+            text = raw.decode("utf-8").strip("\x00").strip()
         except UnicodeDecodeError:
-            return value.prettyPrint()
+            return "0x" + raw.hex()
+        # Binary values (e.g. MAC addresses) that happen to be valid UTF-8
+        return text if all(c.isprintable() or c in "\t\r\n" for c in text) else "0x" + raw.hex()
     return value.prettyPrint() if hasattr(value, "prettyPrint") else value
 
 
@@ -333,3 +335,34 @@ class ApcSnmpClient:
             self._raise_indication(indication)
         if status:
             raise ApcSnmpError(f"SNMP set {oid} failed: {status.prettyPrint()}")
+
+
+IF_PHYS_ADDRESS = ".1.3.6.1.2.1.2.2.1.6"
+
+
+async def async_read_mac(client: ApcSnmpClient) -> str | None:
+    """Return the MAC address of the card's network interface, if reported."""
+    try:
+        addresses = await client.walk(IF_PHYS_ADDRESS, 16)
+    except ApcSnmpAuthError:
+        raise
+    except ApcSnmpError:
+        return None
+    for value in addresses.values():
+        if mac := parse_mac(value):
+            return mac
+    return None
+
+
+def parse_mac(value: Any) -> str | None:
+    """Parse "0x0011223344aa" (as returned by convert_value) into aa:bb:... form."""
+    if not isinstance(value, str) or not value.startswith("0x") or len(value) != 14:
+        return None
+    digits = value[2:].lower()
+    if digits in ("000000000000", "ffffffffffff"):
+        return None
+    try:
+        int(digits, 16)
+    except ValueError:
+        return None
+    return ":".join(digits[i : i + 2] for i in range(0, 12, 2))

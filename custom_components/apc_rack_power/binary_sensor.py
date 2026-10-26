@@ -101,6 +101,7 @@ def _communication(d: ApcSnapshot) -> bool | None:
 
 def _pdu_states(d: ApcSnapshot) -> list[str | int | None]:
     states: list[str | int | None] = [d.metric("pdu_load_state")]
+    states += [row.get("load_state") for row in d.tables.get("device_rpdu2", {}).values()]
     states += [row.get("load_state") for row in d.tables.get("phase_rpdu2", {}).values()]
     states += [row.get("load_state") for row in d.tables.get("bank_rpdu2", {}).values()]
     return states

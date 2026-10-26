@@ -17,10 +17,10 @@ class ApcEntity(CoordinatorEntity[ApcCoordinator]):
 
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator: ApcCoordinator, key: str) -> None:
+    def __init__(self, coordinator: ApcCoordinator, key: str, module: int = 1) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{coordinator.config_entry.entry_id}_{key}"
-        self._attr_device_info = coordinator.device_info
+        self._attr_device_info = coordinator.module_device_info(module)
 
     @property
     def snapshot(self) -> ApcSnapshot:

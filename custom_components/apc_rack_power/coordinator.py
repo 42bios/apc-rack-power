@@ -35,7 +35,7 @@ from .device_profile import (
     kind_matches,
     parse_flags,
 )
-from .snmp_client import ApcSnmpAuthError, ApcSnmpClient, ApcSnmpError
+from .snmp_client import ApcSnmpAuthError, ApcSnmpClient, ApcSnmpError, async_read_mac
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -46,6 +46,7 @@ _LOGGER = logging.getLogger(__name__)
 
 # Which device kind a table belongs to (None = any network card)
 TABLE_KIND: dict[str, str | None] = {
+    "device_rpdu2": DEVICE_PDU,
     "phase_rpdu2": DEVICE_PDU,
     "bank_rpdu2": DEVICE_PDU,
     "load_rpdu": DEVICE_PDU,
@@ -74,6 +75,7 @@ class ControlPoint:
     cmd_on: int
     cmd_off: int
     cmd_reboot: int | None
+    module: int = 1
 
 
 @dataclass(slots=True)
@@ -138,6 +140,8 @@ class ApcCoordinator(DataUpdateCoordinator[ApcSnapshot]):
         self._controls: list[ControlPoint] = []
         self._table_rows: dict[str, dict[str, dict[str, Any]]] = {}
         self._polls = 0
+        self.mac: str | None = None
+        self._discovery_task: asyncio.Task | None = None
         self.trap_count = 0
         self.last_trap: dict[str, Any] | None = None
 
@@ -170,6 +174,23 @@ class ApcCoordinator(DataUpdateCoordinator[ApcSnapshot]):
             configuration_url=f"http://{self.config_entry.data[CONF_HOST]}",
         )
 
+    def module_device_info(self, module: int) -> DeviceInfo:
+        """Device of a chained (Network Port Sharing) PDU; module 1 is the card itself."""
+        if module <= 1:
+            return self.device_info
+        rows = self.data.tables.get("device_rpdu2", {}) if self.data else {}
+        row = next((r for r in rows.values() if r.get("module") == module), {})
+        label = str(row.get("name") or "").strip() or f"PDU {module}"
+        return DeviceInfo(
+            identifiers={(DOMAIN, f"{self.config_entry.entry_id}_module_{module}")},
+            name=f"{self.config_entry.title} {label}",
+            manufacturer="APC",
+            model=str(row.get("model") or "").strip() or None,
+            serial_number=str(row.get("serial") or "").strip() or None,
+            sw_version=str(row.get("firmware") or "").strip() or None,
+            via_device=(DOMAIN, self.config_entry.entry_id),
+        )
+
     # ----------------------------------------------------------------- polling
 
     async def _async_update_data(self) -> ApcSnapshot:
@@ -183,7 +204,13 @@ class ApcCoordinator(DataUpdateCoordinator[ApcSnapshot]):
                 )
             device_kind = detect_device_kind(metrics)
             if discover:
-                await self._discover(device_kind)
+                if self._polls == 0:
+                    await self._discover(device_kind)
+                elif self._discovery_task is None or self._discovery_task.done():
+                    # Walking tables is slow on older cards; never delay a poll for it.
+                    self._discovery_task = self.config_entry.async_create_background_task(
+                        self.hass, self._async_rediscover(device_kind), f"{DOMAIN}_discovery"
+                    )
             tables, control_states = await self._poll_tables()
         except ApcSnmpAuthError as err:
             raise ConfigEntryAuthFailed(
@@ -249,6 +276,7 @@ class ApcCoordinator(DataUpdateCoordinator[ApcSnapshot]):
 
     async def _discover(self, device_kind: str) -> None:
         """Find outlets, outlet groups and tables the device supports."""
+        self.mac = await async_read_mac(self.client) or self.mac
         controls: list[ControlPoint] = []
         have_pdu_table = False
         for table in CONTROL_TABLES:
@@ -257,8 +285,15 @@ class ApcCoordinator(DataUpdateCoordinator[ApcSnapshot]):
             if table.kind == DEVICE_PDU and have_pdu_table:
                 continue
             names = await self._walk(table.name_oid)
+            modules: dict[str, Any] = {}
+            if table.module_oid and names:
+                modules = {
+                    index: value
+                    for oid, value in (await self._walk(table.module_oid)).items()
+                    if (index := self._index(oid, table.module_oid)) is not None
+                }
             rows = [
-                self._control_point(table, index, str(name).strip())
+                self._control_point(table, index, str(name).strip(), modules.get(index))
                 for oid, name in names.items()
                 if (index := self._index(oid, table.name_oid)) is not None
             ]
@@ -296,8 +331,14 @@ class ApcCoordinator(DataUpdateCoordinator[ApcSnapshot]):
         # A table that failed to answer this time keeps its previous rows.
         self._table_rows = {**self._table_rows, **table_rows}
 
+    async def _async_rediscover(self, device_kind: str) -> None:
+        try:
+            await self._discover(device_kind)
+        except ApcSnmpError as err:
+            _LOGGER.debug("Background discovery failed: %s", err)
+
     @staticmethod
-    def _control_point(table: ControlTableDef, index: str, name: str) -> ControlPoint:
+    def _control_point(table: ControlTableDef, index: str, name: str, module: Any = None) -> ControlPoint:
         if not name or name in {"0", "None"}:
             name = f"{index}"
         return ControlPoint(
@@ -313,6 +354,7 @@ class ApcCoordinator(DataUpdateCoordinator[ApcSnapshot]):
             cmd_on=table.cmd_on,
             cmd_off=table.cmd_off,
             cmd_reboot=table.cmd_reboot,
+            module=module if isinstance(module, int) and module > 0 else 1,
         )
 
     async def _poll_tables(

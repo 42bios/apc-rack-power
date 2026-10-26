@@ -41,7 +41,7 @@ class ApcControlSwitch(ApcEntity, SwitchEntity):
     _attr_device_class = SwitchDeviceClass.OUTLET
 
     def __init__(self, coordinator: ApcCoordinator, control: ControlPoint) -> None:
-        super().__init__(coordinator, control.uid)
+        super().__init__(coordinator, control.uid, control.module)
         self._control = control
         name = control.name.strip()
         if control.kind == DEVICE_UPS:

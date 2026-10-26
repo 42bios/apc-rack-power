@@ -10,6 +10,7 @@ from .const import DEVICE_MIXED, DEVICE_PDU, DEVICE_UPS
 
 _MODEL_RE = re.compile(r"\bMN:\s*([A-Za-z0-9_-]+)")
 _DATE_RE = re.compile(r"^\s*(\d{1,2})/(\d{1,2})/(\d{2}|\d{4})\s*$")
+_MAC_RE = re.compile(r"^[0-9a-f]{2}(:[0-9a-f]{2}){5}$")
 _UNAVAILABLE_TEXT = {"", "unknown", "unbekannt", "not available", "not supported", "n/a"}
 
 # sysObjectID prefixes of APC products (PowerNet-MIB "products" branch)
@@ -96,3 +97,8 @@ def parse_apc_date(value: Any) -> date | None:
         return date(year, month, day)
     except ValueError:
         return None
+
+
+def is_mac(value: Any) -> bool:
+    """Whether a unique id is a MAC address (and not a legacy host)."""
+    return isinstance(value, str) and bool(_MAC_RE.match(value))

@@ -1,0 +1,648 @@
+{
+  "config": {
+    "flow_title": "{host}",
+    "step": {
+      "user": {
+        "title": "APC-Netzwerkkarte",
+        "description": "Verbinde eine APC-USV oder Rack-PDU über ihre Netzwerkkarte (NMC).\n\nEmpfohlen ist SNMPv3: Es prüft jede Anfrage und verschlüsselt die Verbindung. SNMPv1 und SNMPv2c übertragen die Community im Klartext.",
+        "data": {
+          "host": "Host",
+          "name": "Name",
+          "port": "SNMP-Port",
+          "snmp_version": "SNMP-Version"
+        },
+        "data_description": {
+          "host": "IP-Adresse oder Hostname der Netzwerkkarte.",
+          "name": "Name des Geräts in Home Assistant.",
+          "snmp_version": "Muss auf der Karte aktiviert sein (Configuration → Network → SNMPv1 / SNMPv3)."
+        }
+      },
+      "reconfigure": {
+        "title": "Verbindung ändern",
+        "description": "Adresse, Port oder SNMP-Version ändern. Die Zugangsdaten folgen im nächsten Schritt.",
+        "data": {
+          "host": "Host",
+          "port": "SNMP-Port",
+          "snmp_version": "SNMP-Version"
+        },
+        "data_description": {
+          "snmp_version": "SNMPv3 wird empfohlen; v1/v2c übertragen die Community im Klartext."
+        }
+      },
+      "community": {
+        "title": "Communities ({version})",
+        "description": "Gib die auf der Netzwerkkarte eingestellten Communities ein.\n\n**Sicherheitshinweis:** {version} überträgt die Community und alle Werte im Klartext, und wer die Schreib-Community kennt, kann Steckdosen schalten. Wenn deine Karte es unterstützt, nutze besser **SNMPv3** mit Anmeldung und Verschlüsselung (bei APC-Karten: SHA und AES). Umstellen kannst du später über *Neu konfigurieren*.",
+        "data": {
+          "community": "Lese-Community",
+          "write_community": "Schreib-Community"
+        },
+        "data_description": {
+          "community": "Community mit Lesezugriff (Werkseinstellung der Karte: „public“).",
+          "write_community": "Nötig zum Schalten von Steckdosen, für Selbsttests und Einstellungen. Leer lassen, um die Lese-Community zu verwenden."
+        }
+      },
+      "v3": {
+        "title": "SNMPv3-Zugangsdaten",
+        "description": "Gib einen SNMPv3-Benutzer der Netzwerkkarte ein. Vollen Schutz bieten Anmeldung und Verschlüsselung (authPriv).\n\nAuf der Karte: Benutzer anlegen (SNMPv3 → User Profiles), mit der Adresse von Home Assistant oder 0.0.0.0 freigeben (SNMPv3 → Access Control) und unter SNMPv3 → Access **Enable** anhaken.",
+        "data": {
+          "v3_username": "Benutzername",
+          "v3_auth_protocol": "Anmeldeverfahren",
+          "v3_auth_passphrase": "Anmelde-Passphrase",
+          "v3_priv_protocol": "Verschlüsselung",
+          "v3_priv_passphrase": "Verschlüsselungs-Passphrase"
+        },
+        "data_description": {
+          "v3_auth_protocol": "Muss zum Benutzer auf der Karte passen. APC-Karten bieten meist SHA (SHA-1) und MD5 – wähle SHA. SHA-2-Varianten nur, wenn deine Karte sie anbietet.",
+          "v3_priv_protocol": "Muss zum Benutzer auf der Karte passen. Wähle AES (AES-128), DES besser nicht. Für AES-192/256 gibt es zwei Schlüsselformate; klappt eines nicht, probiere das andere.",
+          "v3_auth_passphrase": "Mindestens 8 Zeichen.",
+          "v3_priv_passphrase": "Mindestens 8 Zeichen."
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Keine SNMP-Antwort. Prüfe Adresse, Port, SNMP-Version und die Zugriffsfreigabe der Karte. Bei SNMPv3 schweigen APC-Karten auch, wenn Benutzername, Passphrase oder Verfahren nicht passen oder SNMPv3 auf der Karte nicht aktiviert ist.",
+      "invalid_auth": "Die Karte hat die SNMPv3-Zugangsdaten abgelehnt.",
+      "username_required": "Ein Benutzername ist erforderlich.",
+      "passphrase_too_short": "Die Passphrase braucht mindestens 8 Zeichen.",
+      "priv_requires_auth": "Verschlüsselung setzt ein Anmeldeverfahren voraus."
+    },
+    "abort": {
+      "already_configured": "Dieses Gerät ist bereits eingerichtet.",
+      "reconfigure_successful": "Die Verbindung wurde aktualisiert.",
+      "reauth_successful": "Die Zugangsdaten wurden aktualisiert.",
+      "wrong_device": "Diese Adresse gehört zu einer anderen Netzwerkkarte als der dieses Eintrags."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Optionen",
+        "description": "Adresse, SNMP-Version und Zugangsdaten änderst du über **Neu konfigurieren** im Menü dieses Eintrags.",
+        "sections": {
+          "polling": {
+            "name": "Abfrage",
+            "description": "Wie oft und wie geduldig die Netzwerkkarte abgefragt wird.",
+            "data": {
+              "scan_interval": "Abfrageintervall",
+              "timeout": "Zeitlimit",
+              "retries": "Wiederholungen"
+            },
+            "data_description": {
+              "scan_interval": "Sekunden zwischen zwei Abfragen. 30 s sind ein guter Wert; ältere Karten (NMC2) antworten langsamer.",
+              "timeout": "Sekunden Wartezeit auf eine Antwort.",
+              "retries": "Wiederholungen, bevor eine Anfrage als fehlgeschlagen gilt."
+            }
+          },
+          "traps": {
+            "name": "SNMP-Traps",
+            "description": "Sofortige Aktualisierung, wenn die Karte ein Ereignis meldet (Netzausfall, Alarme, Steckdosen).",
+            "data": {
+              "trap_enabled": "SNMP-Traps empfangen",
+              "trap_port": "Port (UDP)",
+              "trap_community": "Trap-Community"
+            },
+            "data_description": {
+              "trap_enabled": "Home Assistant auf der Karte als Trap-Empfänger eintragen: Configuration → Notification → SNMP Traps → Trap Receivers.",
+              "trap_port": "162 ist der Standard. Ist 162 nicht verfügbar, einen Port über 1024 wählen und auf der Karte denselben eintragen.",
+              "trap_community": "Community, die die Karte mit ihren Traps sendet. Leer: alle Traps dieses Geräts annehmen."
+            }
+          },
+          "advanced": {
+            "name": "Erweitert",
+            "description": "Zusätzliche Werte, die die Integration nicht selbst ausliest.",
+            "data": {
+              "custom_oids": "Eigene OIDs"
+            },
+            "data_description": {
+              "custom_oids": "Eine pro Zeile als name=OID, z. B. battery_cartridge=.1.3.6.1.4.1.318.1.1.1.2.2.19.0. Jede Zeile wird ein Diagnose-Sensor."
+            }
+          }
+        }
+      }
+    }
+  },
+  "selector": {
+    "snmp_version": {
+      "options": {
+        "v3": "SNMPv3 (empfohlen)",
+        "v2c": "SNMPv2c",
+        "v1": "SNMPv1"
+      }
+    },
+    "auth_protocol": {
+      "options": {
+        "none": "Keine (noAuthNoPriv)",
+        "md5": "MD5",
+        "sha": "SHA-1 (APC: „SHA“)",
+        "sha224": "SHA-224",
+        "sha256": "SHA-256",
+        "sha384": "SHA-384",
+        "sha512": "SHA-512"
+      }
+    },
+    "priv_protocol": {
+      "options": {
+        "none": "Keine",
+        "des": "DES (unsicher)",
+        "3des": "3DES",
+        "aes": "AES-128 (APC: „AES“)",
+        "aes192": "AES-192",
+        "aes256": "AES-256",
+        "aes192c": "AES-192 (Schlüsselformat Cisco/Reeder)",
+        "aes256c": "AES-256 (Schlüsselformat Cisco/Reeder)"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "sys_name": {
+        "name": "Systemname"
+      },
+      "sys_descr": {
+        "name": "Systembeschreibung"
+      },
+      "apc_model_number": {
+        "name": "Netzwerkkarte"
+      },
+      "sys_uptime_ticks": {
+        "name": "Systemlaufzeit"
+      },
+      "ups_ident_model": {
+        "name": "USV-Modell"
+      },
+      "ups_sku": {
+        "name": "USV-Artikelnummer"
+      },
+      "ups_ident_name": {
+        "name": "USV-Name"
+      },
+      "ups_battery_status": {
+        "name": "Batteriestatus",
+        "state": {
+          "unknown": "Unbekannt",
+          "normal": "Normal",
+          "low": "Niedrig",
+          "depleted": "Erschöpft",
+          "fault": "Fehler",
+          "not_present": "Keine Batterie"
+        }
+      },
+      "ups_charge_remaining": {
+        "name": "Ladezustand"
+      },
+      "ups_minutes_remaining": {
+        "name": "Restlaufzeit"
+      },
+      "ups_seconds_on_battery": {
+        "name": "Zeit auf Batterie"
+      },
+      "ups_battery_voltage": {
+        "name": "Batteriespannung"
+      },
+      "ups_battery_current": {
+        "name": "Batteriestrom"
+      },
+      "ups_battery_temp": {
+        "name": "Batterietemperatur"
+      },
+      "ups_battery_last_replaced": {
+        "name": "Batterie eingebaut"
+      },
+      "ups_battery_replace_by": {
+        "name": "Batterietausch fällig"
+      },
+      "ups_battery_packs": {
+        "name": "Zusatzbatterien"
+      },
+      "ups_battery_bad_packs": {
+        "name": "Defekte Zusatzbatterien"
+      },
+      "ups_external_battery_model": {
+        "name": "Modell Zusatzbatterie"
+      },
+      "ups_input_voltage": {
+        "name": "Eingangsspannung"
+      },
+      "ups_input_frequency": {
+        "name": "Eingangsfrequenz"
+      },
+      "ups_input_line_bads": {
+        "name": "Netzstörungen"
+      },
+      "ups_last_transfer_cause": {
+        "name": "Letzte Umschaltung",
+        "state": {
+          "no_transfer": "Keine Umschaltung",
+          "high_line_voltage": "Überspannung",
+          "brownout": "Unterspannung",
+          "blackout": "Stromausfall",
+          "small_momentary_sag": "Kurzer kleiner Spannungseinbruch",
+          "deep_momentary_sag": "Kurzer tiefer Spannungseinbruch",
+          "small_momentary_spike": "Kleine Spannungsspitze",
+          "large_momentary_spike": "Große Spannungsspitze",
+          "self_test": "Selbsttest",
+          "rate_of_voltage_change": "Zu schnelle Spannungsänderung"
+        }
+      },
+      "ups_output_source": {
+        "name": "Ausgangsquelle",
+        "state": {
+          "other": "Sonstige",
+          "none": "Keine",
+          "normal": "Netz",
+          "bypass": "Bypass",
+          "battery": "Batterie",
+          "booster": "Booster",
+          "reducer": "Reducer"
+        }
+      },
+      "ups_output_status": {
+        "name": "Ausgangsstatus",
+        "state": {
+          "unknown": "Unbekannt",
+          "on_line": "Online",
+          "on_battery": "Batteriebetrieb",
+          "on_smart_boost": "SmartBoost",
+          "timed_sleeping": "Zeitgesteuerter Ruhezustand",
+          "software_bypass": "Software-Bypass",
+          "off": "Aus",
+          "rebooting": "Neustart",
+          "switched_bypass": "Geschalteter Bypass",
+          "hardware_failure_bypass": "Bypass (Hardwarefehler)",
+          "sleeping_until_power_return": "Ruhezustand bis Netzrückkehr",
+          "on_smart_trim": "SmartTrim",
+          "eco_mode": "Eco-Modus",
+          "hot_standby": "Hot-Standby",
+          "on_battery_test": "Batterietest",
+          "emergency_static_bypass": "Notfall-Bypass",
+          "static_bypass_standby": "Statischer Bypass bereit",
+          "power_saving_mode": "Energiesparmodus",
+          "spot_mode": "Spot-Modus",
+          "e_conversion": "eConversion",
+          "charger_spot_mode": "Lader-Spot-Modus",
+          "inverter_spot_mode": "Wechselrichter-Spot-Modus",
+          "active_load": "Aktive Last",
+          "battery_discharge_spot_mode": "Entlade-Spot-Modus",
+          "inverter_standby": "Wechselrichter-Standby",
+          "charger_only": "Nur Laden",
+          "distributed_energy_reserve": "Verteilte Energiereserve",
+          "self_test": "Selbsttest"
+        }
+      },
+      "ups_output_voltage": {
+        "name": "Ausgangsspannung"
+      },
+      "ups_output_frequency": {
+        "name": "Ausgangsfrequenz"
+      },
+      "ups_output_current": {
+        "name": "Ausgangsstrom"
+      },
+      "ups_output_load": {
+        "name": "Ausgangslast"
+      },
+      "ups_output_power": {
+        "name": "Ausgangsleistung"
+      },
+      "ups_output_apparent_power": {
+        "name": "Ausgangs-Scheinleistung"
+      },
+      "ups_output_energy": {
+        "name": "Ausgangsenergie"
+      },
+      "ups_efficiency": {
+        "name": "Wirkungsgrad"
+      },
+      "ups_alarms_present": {
+        "name": "Aktive Alarme"
+      },
+      "ups_test_result": {
+        "name": "Selbsttest-Ergebnis",
+        "state": {
+          "passed": "Bestanden",
+          "warning": "Warnung",
+          "error": "Fehler",
+          "aborted": "Abgebrochen",
+          "in_progress": "Läuft",
+          "none": "Noch kein Test"
+        }
+      },
+      "ups_last_self_test": {
+        "name": "Letzter Selbsttest"
+      },
+      "ups_calibration_result": {
+        "name": "Ergebnis Laufzeitkalibrierung",
+        "state": {
+          "ok": "OK",
+          "invalid": "Ungültig",
+          "in_progress": "Läuft",
+          "refused": "Abgelehnt",
+          "aborted": "Abgebrochen",
+          "pending": "Ausstehend",
+          "unknown": "Unbekannt"
+        }
+      },
+      "ups_last_calibration": {
+        "name": "Letzte Laufzeitkalibrierung"
+      },
+      "pdu_device_num_outlets": {
+        "name": "Anzahl Steckdosen"
+      },
+      "pdu_load_watts": {
+        "name": "Leistung"
+      },
+      "pdu_apparent_power": {
+        "name": "Scheinleistung"
+      },
+      "pdu_device_load_percent": {
+        "name": "Last"
+      },
+      "pdu_load_state": {
+        "name": "Lastzustand",
+        "state": {
+          "low_load": "Geringe Last",
+          "normal": "Normal",
+          "near_overload": "Nahe Überlast",
+          "overload": "Überlast"
+        }
+      },
+      "pdu_energy_kwh": {
+        "name": "Energie"
+      },
+      "pdu_peak_power_kw": {
+        "name": "Spitzenleistung"
+      },
+      "pdu_power_factor": {
+        "name": "Leistungsfaktor"
+      },
+      "pdu_phase_current": {
+        "name": "Phasenstrom"
+      },
+      "pdu_phase_voltage": {
+        "name": "Phasenspannung"
+      },
+      "pdu_phase_power_kw": {
+        "name": "Phasenleistung"
+      },
+      "pdu_peak_current": {
+        "name": "Spitzenstrom"
+      },
+      "pdu_phase_load_state": {
+        "name": "Phasen-Lastzustand",
+        "state": {
+          "low_load": "Geringe Last",
+          "normal": "Normal",
+          "near_overload": "Nahe Überlast",
+          "overload": "Überlast"
+        }
+      },
+      "phase_current": {
+        "name": "Phase {phase} Strom"
+      },
+      "phase_voltage": {
+        "name": "Phase {phase} Spannung"
+      },
+      "phase_power": {
+        "name": "Phase {phase} Leistung"
+      },
+      "phase_peak_current": {
+        "name": "Phase {phase} Spitzenstrom"
+      },
+      "phase_load_state": {
+        "name": "Phase {phase} Lastzustand",
+        "state": {
+          "low_load": "Geringe Last",
+          "normal": "Normal",
+          "near_overload": "Nahe Überlast",
+          "overload": "Überlast"
+        }
+      },
+      "bank_current": {
+        "name": "Bank {bank} Strom"
+      },
+      "bank_load_state": {
+        "name": "Bank {bank} Lastzustand",
+        "state": {
+          "low_load": "Geringe Last",
+          "normal": "Normal",
+          "near_overload": "Nahe Überlast",
+          "overload": "Überlast"
+        }
+      },
+      "outlet_power": {
+        "name": "{outlet} Leistung"
+      },
+      "outlet_current": {
+        "name": "{outlet} Strom"
+      },
+      "outlet_energy": {
+        "name": "{outlet} Energie"
+      },
+      "pdu_env_temperature": {
+        "name": "Temperatur"
+      },
+      "pdu_env_humidity": {
+        "name": "Luftfeuchtigkeit"
+      },
+      "probe_temperature": {
+        "name": "{name} Temperatur"
+      },
+      "probe_humidity": {
+        "name": "{name} Luftfeuchtigkeit"
+      },
+      "pdu_name": {
+        "name": "PDU-Name"
+      },
+      "pdu_location": {
+        "name": "Standort"
+      },
+      "pdu_contact": {
+        "name": "Kontakt"
+      },
+      "pdu_model_number": {
+        "name": "PDU-Modell"
+      },
+      "pdu_serial_number": {
+        "name": "PDU-Seriennummer"
+      },
+      "pdu_firmware_rpdu": {
+        "name": "PDU-Firmware"
+      },
+      "pdu_firmware_bootmon": {
+        "name": "Boot-Monitor-Firmware"
+      },
+      "pdu_bank_count": {
+        "name": "Anzahl Bänke"
+      },
+      "pdu_nps_status": {
+        "name": "Network Port Sharing",
+        "state": {
+          "not_nps": "Nicht genutzt",
+          "host": "Host",
+          "guest": "Gast"
+        }
+      },
+      "discovered_controls": {
+        "name": "Gefundene Schaltpunkte"
+      },
+      "custom_metric": {
+        "name": "Eigener Wert {key}"
+      }
+    },
+    "binary_sensor": {
+      "ups_on_battery": {
+        "name": "Batteriebetrieb"
+      },
+      "ups_low_battery": {
+        "name": "Batterie schwach"
+      },
+      "ups_replace_battery": {
+        "name": "Batterie tauschen"
+      },
+      "ups_overload": {
+        "name": "Überlast"
+      },
+      "ups_alarm": {
+        "name": "Alarm"
+      },
+      "ups_bypass": {
+        "name": "Bypass"
+      },
+      "ups_self_test_running": {
+        "name": "Selbsttest läuft"
+      },
+      "ups_calibration_running": {
+        "name": "Laufzeitkalibrierung läuft"
+      },
+      "ups_communication": {
+        "name": "Verbindung zur USV"
+      },
+      "pdu_overload": {
+        "name": "Überlast"
+      },
+      "pdu_near_overload": {
+        "name": "Nahe Überlast"
+      },
+      "pdu_power_supply_alarm": {
+        "name": "Netzteil-Alarm"
+      }
+    },
+    "button": {
+      "ups_self_test": {
+        "name": "Selbsttest starten"
+      },
+      "ups_calibration_start": {
+        "name": "Laufzeitkalibrierung starten"
+      },
+      "ups_calibration_cancel": {
+        "name": "Laufzeitkalibrierung abbrechen"
+      },
+      "ups_identify": {
+        "name": "Blinken und piepen"
+      },
+      "outlet_reboot": {
+        "name": "{name} neu starten"
+      },
+      "outlet_group_reboot": {
+        "name": "{name} neu starten"
+      }
+    },
+    "select": {
+      "ups_alarm_beeper": {
+        "name": "Alarmton",
+        "state": {
+          "timed": "Verzögert",
+          "at_low_battery": "Bei schwacher Batterie",
+          "never": "Nie",
+          "mute": "Stumm"
+        }
+      }
+    },
+    "switch": {
+      "outlet": {
+        "name": "{name}"
+      },
+      "outlet_default": {
+        "name": "{name}"
+      },
+      "outlet_group": {
+        "name": "{name}"
+      }
+    }
+  },
+  "exceptions": {
+    "no_data": {
+      "message": "Das Gerät antwortet ohne APC-Werte. Prüfe die SNMP-Zugriffseinstellungen."
+    },
+    "auth_failed": {
+      "message": "Das Gerät hat die SNMPv3-Zugangsdaten abgelehnt: {error}"
+    },
+    "update_failed": {
+      "message": "Das Gerät kann nicht gelesen werden: {error}"
+    },
+    "write_failed": {
+      "message": "Das Gerät hat den Befehl nicht angenommen: {error}"
+    },
+    "reboot_not_supported": {
+      "message": "Diese Steckdose unterstützt keinen Neustart."
+    },
+    "unknown_entry": {
+      "message": "Kein geladener APC-Rack-Power-Eintrag mit der ID {entry_id}."
+    },
+    "unknown_control": {
+      "message": "Keine Steckdose oder Ausgangsgruppe mit der uid {control_uid}."
+    }
+  },
+  "issues": {
+    "battery_replace": {
+      "title": "Batterie von {name} tauschen",
+      "description": "Die USV {name} meldet, dass die Batterie getauscht werden muss. Trage nach dem Tausch das neue Einbaudatum auf der Netzwerkkarte ein, dann verschwindet der Hinweis."
+    },
+    "write_failed": {
+      "title": "{name} lehnt Befehle ab",
+      "description": "Ein Befehl an {name} ist fehlgeschlagen. Prüfe, ob die Schreib-Community (SNMPv1/v2c) bzw. der SNMPv3-Benutzer Schreibrechte auf der Netzwerkkarte hat und Home Assistant in der Zugriffsliste der Karte steht. Zugangsdaten änderst du über „Neu konfigurieren“."
+    },
+    "trap_port": {
+      "title": "SNMP-Traps für {name} können nicht empfangen werden",
+      "description": "Home Assistant kann auf UDP-Port {port} nicht lauschen ({error}). Wähle in den Optionen einen Port über 1024 und trage denselben Port auf der Netzwerkkarte beim Trap-Empfänger ein."
+    }
+  },
+  "services": {
+    "set_oid": {
+      "name": "SNMP-OID setzen",
+      "description": "Schreibt eine Ganzzahl in eine beschreibbare OID des Geräts.",
+      "fields": {
+        "entry_id": {
+          "name": "Gerät",
+          "description": "Der APC-Rack-Power-Eintrag."
+        },
+        "oid": {
+          "name": "OID",
+          "description": "Numerische OID, z. B. .1.3.6.1.4.1.318.1.1.1.7.2.2.0"
+        },
+        "value": {
+          "name": "Wert",
+          "description": "Zu schreibende Ganzzahl."
+        }
+      }
+    },
+    "control_action": {
+      "name": "Steckdose steuern",
+      "description": "Schaltet eine Steckdose oder Ausgangsgruppe ein, aus oder startet sie neu.",
+      "fields": {
+        "entry_id": {
+          "name": "Gerät",
+          "description": "Der APC-Rack-Power-Eintrag."
+        },
+        "control_uid": {
+          "name": "Schaltpunkt",
+          "description": "uid der Steckdose (siehe Attribute des Schalters oder Sensor „Gefundene Schaltpunkte“)."
+        },
+        "action": {
+          "name": "Aktion",
+          "description": "on, off oder cycle (Neustart)."
+        }
+      }
+    }
+  }
+}

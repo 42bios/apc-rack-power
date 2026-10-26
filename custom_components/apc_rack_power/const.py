@@ -223,6 +223,25 @@ def _c(oid: str, scale: float = 1.0, precision: int | None = None) -> Column:
 
 
 TABLES: tuple[TableDef, ...] = (
+    # All rPDU2 devices; rows beyond the first are Network Port Sharing guests
+    TableDef(
+        "device_rpdu2",
+        columns={
+            "load_state": _c(f"{_RPDU2}.4.3.1.4"),
+            "power": _c(f"{_RPDU2}.4.3.1.5", 10.0, 0),
+            "energy": _c(f"{_RPDU2}.4.3.1.9", 0.1, 1),
+            "power_supply_alarm": _c(f"{_RPDU2}.4.3.1.12"),
+            "apparent_power": _c(f"{_RPDU2}.4.3.1.16", 10.0, 0),
+            "power_factor": _c(f"{_RPDU2}.4.3.1.17", 0.01, 2),
+        },
+        static_columns={
+            "module": _c(f"{_RPDU2}.2.1.2"),
+            "name": _c(f"{_RPDU2}.2.1.3"),
+            "firmware": _c(f"{_RPDU2}.2.1.6"),
+            "model": _c(f"{_RPDU2}.2.1.8"),
+            "serial": _c(f"{_RPDU2}.2.1.9"),
+        },
+    ),
     # rPDU2 phases: load state, current (0.1 A), voltage, power (0.01 kW)
     TableDef(
         "phase_rpdu2",
@@ -236,6 +255,8 @@ TABLES: tuple[TableDef, ...] = (
             "peak_current": _c(f"{_RPDU2}.6.3.1.10", 0.1, 1),
         },
         static_columns={
+            "module": _c(f"{_RPDU2}.6.3.1.2"),
+            "number": _c(f"{_RPDU2}.6.3.1.3"),
             "low_load_threshold": _c(f"{_RPDU2}.6.1.1.5"),
             "near_overload_threshold": _c(f"{_RPDU2}.6.1.1.6"),
             "overload_threshold": _c(f"{_RPDU2}.6.1.1.7"),
@@ -250,6 +271,7 @@ TABLES: tuple[TableDef, ...] = (
             "peak_current": _c(f"{_RPDU2}.8.3.1.6", 0.1, 1),
         },
         static_columns={
+            "module": _c(f"{_RPDU2}.8.3.1.2"),
             "number": _c(f"{_RPDU2}.8.3.1.3"),
             "low_load_threshold": _c(f"{_RPDU2}.8.1.1.5"),
             "near_overload_threshold": _c(f"{_RPDU2}.8.1.1.6"),
@@ -285,7 +307,7 @@ TABLES: tuple[TableDef, ...] = (
             "power": _c(f"{_RPDU2}.9.4.3.1.7"),
             "energy": _c(f"{_RPDU2}.9.4.3.1.11", 0.1, 1),
         },
-        static_columns={"name": _c(f"{_RPDU2}.9.4.3.1.3")},
+        static_columns={"name": _c(f"{_RPDU2}.9.4.3.1.3"), "module": _c(f"{_RPDU2}.9.4.3.1.2")},
     ),
     # Temperature/humidity sensor on the rPDU2 sensor port (AP9335T/TH)
     TableDef(
@@ -297,7 +319,7 @@ TABLES: tuple[TableDef, ...] = (
             "temp_status": _c(f"{_RPDU2}.10.2.2.1.9"),
             "humidity_status": _c(f"{_RPDU2}.10.2.2.1.11"),
         },
-        static_columns={"name": _c(f"{_RPDU2}.10.2.2.1.3")},
+        static_columns={"name": _c(f"{_RPDU2}.10.2.2.1.3"), "module": _c(f"{_RPDU2}.10.2.2.1.2")},
     ),
     # Universal I/O sensor ports of NMC2/NMC3 cards (AP9631, AP9641, ...)
     TableDef(
@@ -352,6 +374,8 @@ class ControlTableDef:
     cmd_on: int = 1
     cmd_off: int = 2
     cmd_reboot: int | None = 3
+    # Column with the NPS module number of each row (rPDU2 only)
+    module_oid: str | None = None
 
 
 # PDU tables are mutually exclusive: the first one that answers is used
@@ -365,6 +389,7 @@ CONTROL_TABLES: tuple[ControlTableDef, ...] = (
         command_oid=f"{_RPDU2}.9.2.4.1.5",
         state_on=2,
         state_off=1,
+        module_oid=f"{_RPDU2}.9.2.3.1.2",
     ),
     ControlTableDef(
         key="rpdu_outlet",

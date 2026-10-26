@@ -42,7 +42,7 @@ async def test_user_v2c(hass: HomeAssistant, agent: FakeAgent) -> None:
         "community": "public",
         "write_community": "private",
     }
-    assert result["result"].unique_id == "192.0.2.10"
+    assert result["result"].unique_id == "28:29:86:00:00:01"
 
 
 async def test_user_v3(hass: HomeAssistant, agent: FakeAgent) -> None:
@@ -161,6 +161,7 @@ async def test_reconfigure_to_v3(hass: HomeAssistant, agent: FakeAgent) -> None:
     assert "community" not in entry.data
     assert "write_community" not in entry.data
     assert entry.data["name"] == "UPS"
+    assert entry.unique_id == "28:29:86:00:00:01"
 
 
 async def test_reauth(hass: HomeAssistant, agent: FakeAgent) -> None:
@@ -206,3 +207,33 @@ async def test_options(hass: HomeAssistant, agent: FakeAgent) -> None:
     assert entry.options["scan_interval"] == 60
     assert entry.options["trap_port"] == 1162
     assert entry.options["custom_oids"] == "x=.1.3.6.1.2.1.1.5.0"
+
+
+async def test_dhcp_updates_address_of_known_card(hass: HomeAssistant, agent: FakeAgent) -> None:
+    """A known card (by MAC) that got a new address only updates the host."""
+    entry = make_entry(host="192.0.2.10")
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, unique_id="28:29:86:00:00:01")
+    info = DhcpServiceInfo(ip="192.0.2.50", hostname="apc9785e0", macaddress="282986000001")
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": config_entries.SOURCE_DHCP}, data=info
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "already_configured"
+    assert entry.data["host"] == "192.0.2.50"
+
+
+async def test_reconfigure_other_card_is_rejected(hass: HomeAssistant, agent: FakeAgent) -> None:
+    """Reconfigure refuses an address that belongs to a different card."""
+    agent.use("pdu")
+    entry = make_entry()
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, unique_id="28:29:86:00:00:01")
+    result = await entry.start_reconfigure_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"host": "192.0.2.11", "port": 161, "snmp_version": "v2c"}
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"community": "public"})
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "wrong_device"
+    assert entry.data["host"] == "192.0.2.10"

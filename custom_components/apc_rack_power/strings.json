@@ -31,7 +31,7 @@
       },
       "community": {
         "title": "Community strings ({version})",
-        "description": "Enter the community strings configured on the network card.\n\n**Security notice:** {version} sends the community string and all values in plain text, and anyone who knows the write community can switch outlets. If your card supports it, use **SNMPv3** with authentication and encryption (for example SHA-256 and AES) instead. You can switch later via *Reconfigure*.",
+        "description": "Enter the community strings configured on the network card.\n\n**Security notice:** {version} sends the community string and all values in plain text, and anyone who knows the write community can switch outlets. If your card supports it, use **SNMPv3** with authentication and encryption (on APC cards: SHA and AES) instead. You can switch later via *Reconfigure*.",
         "data": {
           "community": "Read community",
           "write_community": "Write community"
@@ -43,7 +43,7 @@
       },
       "v3": {
         "title": "SNMPv3 credentials",
-        "description": "Enter an SNMPv3 user of the network card. Use authentication and privacy (authPriv) for full protection.",
+        "description": "Enter an SNMPv3 user of the network card. Use authentication and privacy (authPriv) for full protection.\n\nOn the card: create the user (SNMPv3 → User Profiles), enable it with the Home Assistant address or 0.0.0.0 (SNMPv3 → Access Control) and tick **Enable** under SNMPv3 → Access.",
         "data": {
           "v3_username": "User name",
           "v3_auth_protocol": "Authentication protocol",
@@ -60,7 +60,7 @@
       }
     },
     "error": {
-      "cannot_connect": "No SNMP response. Check address, port, SNMP version and the card's access control list.",
+      "cannot_connect": "No SNMP response. Check address, port, SNMP version and the card's access control. For SNMPv3, APC cards also stay silent when the user name, a passphrase or a protocol does not match, or when SNMPv3 access is not enabled on the card.",
       "invalid_auth": "The card rejected the SNMPv3 credentials.",
       "username_required": "A user name is required.",
       "passphrase_too_short": "The passphrase must have at least 8 characters.",
@@ -69,7 +69,8 @@
     "abort": {
       "already_configured": "This device is already configured.",
       "reconfigure_successful": "The connection was updated.",
-      "reauth_successful": "The credentials were updated."
+      "reauth_successful": "The credentials were updated.",
+      "wrong_device": "This address belongs to a different network card than the one of this entry."
     }
   },
   "options": {

@@ -113,7 +113,7 @@ class ApcRebootButton(ApcEntity, ButtonEntity):
     _attr_device_class = ButtonDeviceClass.RESTART
 
     def __init__(self, coordinator: ApcCoordinator, control: ControlPoint) -> None:
-        super().__init__(coordinator, f"{control.uid}_reboot")
+        super().__init__(coordinator, f"{control.uid}_reboot", control.module)
         self._control = control
         self._attr_translation_key = "outlet_group_reboot" if control.kind == DEVICE_UPS else "outlet_reboot"
         self._attr_translation_placeholders = {"name": control.name}

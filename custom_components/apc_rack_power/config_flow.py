@@ -16,6 +16,7 @@ from homeassistant.config_entries import (
 from homeassistant.const import CONF_HOST
 from homeassistant.core import callback
 from homeassistant.data_entry_flow import section
+from homeassistant.helpers.device_registry import format_mac
 from homeassistant.helpers.selector import (
     BooleanSelector,
     NumberSelector,
@@ -66,7 +67,8 @@ from .const import (
     SNMP_V3,
     SNMP_VERSIONS,
 )
-from .snmp_client import ApcSnmpAuthError, ApcSnmpClient, ApcSnmpError
+from .device_profile import is_mac
+from .snmp_client import ApcSnmpAuthError, ApcSnmpClient, ApcSnmpError, async_read_mac
 
 _PASSWORD = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
 _TEXT = TextSelector()
@@ -143,6 +145,7 @@ class ApcConfigFlow(ConfigFlow, domain=DOMAIN):
 
     def __init__(self) -> None:
         self._data: dict[str, Any] = {}
+        self._mac: str | None = None
 
     @staticmethod
     @callback
@@ -155,17 +158,19 @@ class ApcConfigFlow(ConfigFlow, domain=DOMAIN):
         """Host and SNMP version."""
         if user_input is not None:
             host = str(user_input[CONF_HOST]).strip()
-            await self.async_set_unique_id(host)
-            self._abort_if_unique_id_configured()
+            self._async_abort_entries_match({CONF_HOST: host})
             self._data.update(user_input, **{CONF_HOST: host, CONF_PORT: int(user_input[CONF_PORT])})
             return await self._async_step_credentials()
         return self.async_show_form(step_id="user", data_schema=_connection_schema(self._data, with_name=True))
 
     async def async_step_dhcp(self, discovery_info: DhcpServiceInfo) -> ConfigFlowResult:
-        """An APC network card asked for an IP address."""
+        """An APC network card asked for an IP address.
+
+        Known cards (matched by MAC) only get their new address stored.
+        """
         host = discovery_info.ip
-        await self.async_set_unique_id(host)
-        self._abort_if_unique_id_configured()
+        await self.async_set_unique_id(format_mac(discovery_info.macaddress))
+        self._abort_if_unique_id_configured(updates={CONF_HOST: host})
         self._async_abort_entries_match({CONF_HOST: host})
         self._data[CONF_HOST] = host
         self.context["title_placeholders"] = {"host": host}
@@ -176,9 +181,6 @@ class ApcConfigFlow(ConfigFlow, domain=DOMAIN):
         entry = self._get_reconfigure_entry()
         if user_input is not None:
             host = str(user_input[CONF_HOST]).strip()
-            if host != entry.data[CONF_HOST]:
-                await self.async_set_unique_id(host)
-                self._abort_if_unique_id_configured()
             self._data = {**entry.data, **user_input, CONF_HOST: host, CONF_PORT: int(user_input[CONF_PORT])}
             return await self._async_step_credentials()
         return self.async_show_form(step_id="reconfigure", data_schema=_connection_schema(entry.data, with_name=False))
@@ -202,7 +204,7 @@ class ApcConfigFlow(ConfigFlow, domain=DOMAIN):
             candidate = {**self._data, **user_input}
             errors = await self._async_test(candidate)
             if not errors:
-                return self._async_finish(candidate)
+                return await self._async_finish(candidate)
         return self.async_show_form(
             step_id="community",
             data_schema=self.add_suggested_values_to_schema(_community_schema(self._data), user_input or self._data),
@@ -217,7 +219,7 @@ class ApcConfigFlow(ConfigFlow, domain=DOMAIN):
             candidate = {**self._data, **user_input}
             errors = _validate_v3(candidate) or await self._async_test(candidate)
             if not errors:
-                return self._async_finish(candidate)
+                return await self._async_finish(candidate)
         return self.async_show_form(
             step_id="v3",
             data_schema=self.add_suggested_values_to_schema(_v3_schema(self._data), user_input or self._data),
@@ -225,6 +227,7 @@ class ApcConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
     async def _async_test(self, data: Mapping[str, Any]) -> dict[str, str]:
+        """Check the connection and remember the card's MAC address."""
         client = await ApcSnmpClient.async_create(
             self.hass,
             host=str(data[CONF_HOST]),
@@ -235,13 +238,16 @@ class ApcConfigFlow(ConfigFlow, domain=DOMAIN):
         )
         try:
             value = await client.get(".1.3.6.1.2.1.1.1.0")
+            if not value:
+                return {"base": "cannot_connect"}
+            self._mac = await async_read_mac(client)
         except ApcSnmpAuthError:
             return {"base": "invalid_auth"}
         except ApcSnmpError:
             return {"base": "cannot_connect"}
-        return {} if value else {"base": "cannot_connect"}
+        return {}
 
-    def _async_finish(self, data: dict[str, Any]) -> ConfigFlowResult:
+    async def _async_finish(self, data: dict[str, Any]) -> ConfigFlowResult:
         # Keep only the fields of the chosen SNMP version.
         is_v3 = data.get(CONF_SNMP_VERSION) == SNMP_V3
         unused = (
@@ -256,14 +262,25 @@ class ApcConfigFlow(ConfigFlow, domain=DOMAIN):
             )
         )
         clean = {key: value for key, value in data.items() if key not in unused}
+        host = str(clean[CONF_HOST])
 
         if self.source == SOURCE_RECONFIGURE:
             entry = self._get_reconfigure_entry()
+            unique_id = entry.unique_id
+            if self._mac:
+                if is_mac(entry.unique_id) and entry.unique_id != self._mac:
+                    return self.async_abort(reason="wrong_device")
+                unique_id = self._mac
+            elif not is_mac(entry.unique_id):
+                unique_id = host
+            for other in self._async_current_entries(include_ignore=False):
+                if other.entry_id != entry.entry_id and other.unique_id == unique_id:
+                    return self.async_abort(reason="already_configured")
             new_data = {key: value for key, value in entry.data.items() if key not in CONNECTION_KEYS}
             new_data.update(clean)
             return self.async_update_reload_and_abort(
                 entry,
-                unique_id=str(clean[CONF_HOST]),
+                unique_id=unique_id,
                 data=new_data,
                 options={key: value for key, value in entry.options.items() if key not in CONNECTION_KEYS},
             )
@@ -272,6 +289,9 @@ class ApcConfigFlow(ConfigFlow, domain=DOMAIN):
             new_data = {key: value for key, value in entry.data.items() if key not in CONNECTION_KEYS}
             new_data.update(clean)
             return self.async_update_reload_and_abort(entry, data=new_data)
+
+        await self.async_set_unique_id(self._mac or host, raise_on_progress=False)
+        self._abort_if_unique_id_configured(updates={CONF_HOST: host})
         return self.async_create_entry(title=str(clean.get(CONF_NAME) or DEFAULT_NAME), data=clean)
 
 

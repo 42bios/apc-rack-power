@@ -183,11 +183,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ApcConfigEntry) -> bool:
     )
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
+    _async_adopt_mac_unique_id(hass, entry, coordinator.mac)
 
     await _async_setup_traps(hass, entry, coordinator)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+def _async_adopt_mac_unique_id(hass: HomeAssistant, entry: ApcConfigEntry, mac: str | None) -> None:
+    """Identify the entry by the card's MAC instead of its address.
+
+    DHCP discovery then recognises the card after an address change and
+    updates the host instead of offering a new device.
+    """
+    if not mac or entry.unique_id == mac:
+        return
+    if any(other.unique_id == mac for other in hass.config_entries.async_entries(DOMAIN) if other is not entry):
+        return
+    hass.config_entries.async_update_entry(entry, unique_id=mac)
 
 
 async def _async_setup_traps(hass: HomeAssistant, entry: ApcConfigEntry, coordinator: ApcCoordinator) -> None:

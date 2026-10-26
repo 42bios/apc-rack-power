@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -64,6 +64,8 @@ class ApcSensorDescription(SensorEntityDescription):
     exists_fn: ValueFn | None = None
     attrs_fn: Callable[[ApcSnapshot], dict[str, Any] | None] | None = None
     kind: str | None = None
+    # NPS module the value belongs to (1 = the PDU with the network card)
+    module: int = 1
 
 
 def _metric(key: str) -> ValueFn:
@@ -518,69 +520,120 @@ def _load_state(
     )
 
 
+def _module(row: dict[str, Any]) -> int:
+    value = row.get("module")
+    return value if isinstance(value, int) and value > 0 else 1
+
+
+def _in_module(description: ApcSensorDescription, module: int) -> ApcSensorDescription:
+    """Move a description to a chained PDU (own key, own device)."""
+    if module <= 1:
+        return description
+    return replace(description, key=f"m{module}_{description.key}", module=module)
+
+
 def _phase_sensors(d: ApcSnapshot) -> Iterator[tuple[ApcSensorDescription, dict[str, str]]]:
     rows = d.tables.get("phase_rpdu2", {})
-    multi = len(rows) > 1
-    for index in rows:
-        legacy = index == "1"
-        names = {"phase": index}
-        prefix = "pdu_phase" if legacy else f"pdu_phase_{index}"
-        cur_key = "pdu_phase_current" if legacy else f"{prefix}_current"
-        yield (
-            _current(
-                cur_key,
-                "phase_current" if multi else "pdu_phase_current",
-                _cell("phase_rpdu2", index, "current"),
-                _threshold_attrs("phase_rpdu2", index),
-            ),
-            names,
-        )
-        yield (
+    by_module: dict[int, list[str]] = {}
+    for index, row in rows.items():
+        by_module.setdefault(_module(row), []).append(index)
+    for module, indexes in by_module.items():
+        multi = len(indexes) > 1
+        for index in indexes:
+            number = str(rows[index].get("number") or index)
+            legacy = number == "1"
+            names = {"phase": number}
+            prefix = "pdu_phase" if legacy else f"pdu_phase_{number}"
+            descriptions = (
+                _current(
+                    "pdu_phase_current" if legacy else f"{prefix}_current",
+                    "phase_current" if multi else "pdu_phase_current",
+                    _cell("phase_rpdu2", index, "current"),
+                    _threshold_attrs("phase_rpdu2", index),
+                ),
+                _s(
+                    "pdu_phase_voltage" if legacy else f"{prefix}_voltage",
+                    _cell("phase_rpdu2", index, "voltage"),
+                    translation_key="phase_voltage" if multi else "pdu_phase_voltage",
+                    unit=UnitOfElectricPotential.VOLT,
+                    device_class=SensorDeviceClass.VOLTAGE,
+                    state_class=_MEAS,
+                    exists_fn=lambda d: True,
+                ),
+                _s(
+                    "pdu_phase_power_kw" if legacy else f"{prefix}_power",
+                    (lambda d, index=index: _w_to_kw(_cell("phase_rpdu2", index, "power")(d)))
+                    if legacy
+                    else _cell("phase_rpdu2", index, "power"),
+                    translation_key="phase_power" if multi else "pdu_phase_power_kw",
+                    unit=UnitOfPower.KILO_WATT if legacy else UnitOfPower.WATT,
+                    device_class=SensorDeviceClass.POWER,
+                    state_class=_MEAS,
+                    exists_fn=lambda d: True,
+                ),
+                _s(
+                    "pdu_peak_current" if legacy else f"{prefix}_peak_current",
+                    _cell("phase_rpdu2", index, "peak_current"),
+                    translation_key="phase_peak_current" if multi else "pdu_peak_current",
+                    unit=UnitOfElectricCurrent.AMPERE,
+                    device_class=SensorDeviceClass.CURRENT,
+                    category=_DIAG,
+                    exists_fn=lambda d: True,
+                ),
+                _load_state(
+                    f"{prefix}_load_state",
+                    "phase_load_state" if multi else "pdu_phase_load_state",
+                    _cell_enum("phase_rpdu2", index, "load_state", LOAD_STATE),
+                ),
+            )
+            for description in descriptions:
+                yield _in_module(description, module), names
+
+
+def _module_device_sensors(d: ApcSnapshot) -> Iterator[tuple[ApcSensorDescription, dict[str, str]]]:
+    """Power, energy and load of chained (NPS guest) PDUs."""
+    for index, row in d.tables.get("device_rpdu2", {}).items():
+        module = _module(row)
+        if module <= 1:
+            continue
+        descriptions = (
             _s(
-                "pdu_phase_voltage" if legacy else f"{prefix}_voltage",
-                _cell("phase_rpdu2", index, "voltage"),
-                translation_key="phase_voltage" if multi else "pdu_phase_voltage",
-                unit=UnitOfElectricPotential.VOLT,
-                device_class=SensorDeviceClass.VOLTAGE,
-                state_class=_MEAS,
-                exists_fn=lambda d: True,
-            ),
-            names,
-        )
-        yield (
-            _s(
-                "pdu_phase_power_kw" if legacy else f"{prefix}_power",
-                (lambda d, index=index: _w_to_kw(_cell("phase_rpdu2", index, "power")(d)))
-                if legacy
-                else _cell("phase_rpdu2", index, "power"),
-                translation_key="phase_power" if multi else "pdu_phase_power_kw",
-                unit=UnitOfPower.KILO_WATT if legacy else UnitOfPower.WATT,
+                "pdu_load_watts",
+                _cell("device_rpdu2", index, "power"),
+                unit=UnitOfPower.WATT,
                 device_class=SensorDeviceClass.POWER,
                 state_class=_MEAS,
                 exists_fn=lambda d: True,
             ),
-            names,
-        )
-        yield (
             _s(
-                "pdu_peak_current" if legacy else f"{prefix}_peak_current",
-                _cell("phase_rpdu2", index, "peak_current"),
-                translation_key="phase_peak_current" if multi else "pdu_peak_current",
-                unit=UnitOfElectricCurrent.AMPERE,
-                device_class=SensorDeviceClass.CURRENT,
-                category=_DIAG,
+                "pdu_apparent_power",
+                _cell("device_rpdu2", index, "apparent_power"),
+                unit=UnitOfApparentPower.VOLT_AMPERE,
+                device_class=SensorDeviceClass.APPARENT_POWER,
+                state_class=_MEAS,
                 exists_fn=lambda d: True,
             ),
-            names,
-        )
-        yield (
-            _load_state(
-                f"{prefix}_load_state",
-                "phase_load_state" if multi else "pdu_phase_load_state",
-                _cell_enum("phase_rpdu2", index, "load_state", LOAD_STATE),
+            _s(
+                "pdu_energy_kwh",
+                _cell("device_rpdu2", index, "energy"),
+                unit=UnitOfEnergy.KILO_WATT_HOUR,
+                device_class=SensorDeviceClass.ENERGY,
+                state_class=SensorStateClass.TOTAL_INCREASING,
+                exists_fn=lambda d: True,
             ),
-            names,
+            _s(
+                "pdu_power_factor",
+                _cell("device_rpdu2", index, "power_factor"),
+                device_class=SensorDeviceClass.POWER_FACTOR,
+                state_class=_MEAS,
+                exists_fn=lambda d: True,
+            ),
+            _load_state(
+                "pdu_load_state", "pdu_load_state", _cell_enum("device_rpdu2", index, "load_state", LOAD_STATE)
+            ),
         )
+        for description in descriptions:
+            yield _in_module(description, module), {}
 
 
 def _w_to_kw(value: Any) -> float | None:
@@ -591,20 +644,27 @@ def _bank_sensors(d: ApcSnapshot) -> Iterator[tuple[ApcSensorDescription, dict[s
     for index, row in d.tables.get("bank_rpdu2", {}).items():
         number = str(row.get("number") or index)
         names = {"bank": number}
+        module = _module(row)
         yield (
-            _current(
-                f"pdu_bank_{index}_current",
-                "bank_current",
-                _cell("bank_rpdu2", index, "current"),
-                _threshold_attrs("bank_rpdu2", index),
+            _in_module(
+                _current(
+                    f"pdu_bank_{index}_current",
+                    "bank_current",
+                    _cell("bank_rpdu2", index, "current"),
+                    _threshold_attrs("bank_rpdu2", index),
+                ),
+                module,
             ),
             names,
         )
         yield (
-            _load_state(
-                f"pdu_bank_{index}_load_state",
-                "bank_load_state",
-                _cell_enum("bank_rpdu2", index, "load_state", LOAD_STATE),
+            _in_module(
+                _load_state(
+                    f"pdu_bank_{index}_load_state",
+                    "bank_load_state",
+                    _cell_enum("bank_rpdu2", index, "load_state", LOAD_STATE),
+                ),
+                module,
             ),
             names,
         )
@@ -644,7 +704,8 @@ def _legacy_load_sensors(d: ApcSnapshot) -> Iterator[tuple[ApcSensorDescription,
 def _metered_outlet_sensors(d: ApcSnapshot) -> Iterator[tuple[ApcSensorDescription, dict[str, str]]]:
     for index, row in d.tables.get("outlet_metered_rpdu2", {}).items():
         names = {"outlet": str(row.get("name") or index)}
-        yield (
+        module = _module(row)
+        descriptions = (
             _s(
                 f"pdu_outlet_{index}_power",
                 _cell("outlet_metered_rpdu2", index, "power"),
@@ -654,13 +715,7 @@ def _metered_outlet_sensors(d: ApcSnapshot) -> Iterator[tuple[ApcSensorDescripti
                 state_class=_MEAS,
                 exists_fn=lambda d: True,
             ),
-            names,
-        )
-        yield (
             _current(f"pdu_outlet_{index}_current", "outlet_current", _cell("outlet_metered_rpdu2", index, "current")),
-            names,
-        )
-        yield (
             _s(
                 f"pdu_outlet_{index}_energy",
                 _cell("outlet_metered_rpdu2", index, "energy"),
@@ -670,8 +725,9 @@ def _metered_outlet_sensors(d: ApcSnapshot) -> Iterator[tuple[ApcSensorDescripti
                 state_class=SensorStateClass.TOTAL_INCREASING,
                 exists_fn=lambda d: True,
             ),
-            names,
         )
+        for description in descriptions:
+            yield _in_module(description, module), names
 
 
 def _temperature(
@@ -727,21 +783,28 @@ def _env_sensors(d: ApcSnapshot) -> Iterator[tuple[ApcSensorDescription, dict[st
         if row.get("type") not in (1, 2):
             continue
         names = {"name": str(row.get("name") or f"Sensor {index}")}
-        legacy = index == "1"
+        module = _module(row)
+        legacy = index == "1" and module == 1
         yield (
-            _temperature(
-                "pdu_env_temperature" if legacy else f"env_rpdu2_{index}_temperature",
-                _cell("env_rpdu2", index, "temperature"),
-                translation_key="pdu_env_temperature" if legacy else "probe_temperature",
+            _in_module(
+                _temperature(
+                    "pdu_env_temperature" if legacy else f"env_rpdu2_{index}_temperature",
+                    _cell("env_rpdu2", index, "temperature"),
+                    translation_key="pdu_env_temperature" if legacy else "probe_temperature",
+                ),
+                module,
             ),
             names,
         )
         if row.get("type") == 2:
             yield (
-                _humidity(
-                    "pdu_env_humidity" if legacy else f"env_rpdu2_{index}_humidity",
-                    _positive(_cell("env_rpdu2", index, "humidity")),
-                    translation_key="pdu_env_humidity" if legacy else "probe_humidity",
+                _in_module(
+                    _humidity(
+                        "pdu_env_humidity" if legacy else f"env_rpdu2_{index}_humidity",
+                        _positive(_cell("env_rpdu2", index, "humidity")),
+                        translation_key="pdu_env_humidity" if legacy else "probe_humidity",
+                    ),
+                    module,
                 ),
                 names,
             )
@@ -793,6 +856,7 @@ def _env_sensors(d: ApcSnapshot) -> Iterator[tuple[ApcSensorDescription, dict[st
 
 def _dynamic_descriptions(d: ApcSnapshot) -> Iterator[tuple[ApcSensorDescription, dict[str, str]]]:
     if kind_matches(d.device_kind, DEVICE_PDU):
+        yield from _module_device_sensors(d)
         yield from _phase_sensors(d)
         yield from _bank_sensors(d)
         yield from _legacy_load_sensors(d)
@@ -814,7 +878,7 @@ class ApcSensor(ApcEntity, SensorEntity):
         description: ApcSensorDescription,
         placeholders: dict[str, str] | None = None,
     ) -> None:
-        super().__init__(coordinator, description.key)
+        super().__init__(coordinator, description.key, description.module)
         self.entity_description = description
         if placeholders:
             self._attr_translation_placeholders = placeholders

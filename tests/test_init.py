@@ -34,6 +34,8 @@ async def test_ups_entities(hass: HomeAssistant, agent: FakeAgent) -> None:
     entry = make_entry("UPS")
     await _setup(hass, entry)
     assert entry.state is ConfigEntryState.LOADED
+    # Legacy host-based unique id is replaced by the card's MAC
+    assert entry.unique_id == "28:29:86:00:00:01"
 
     assert _state(hass, "sensor.ups_output_power") == "228"
     assert _state(hass, "sensor.ups_output_apparent_power") == "279"
@@ -204,3 +206,55 @@ async def test_custom_oid_does_not_shadow_builtin(hass: HomeAssistant, agent: Fa
     await hass.async_block_till_done()
     assert _state(hass, "sensor.ups_last_transfer_cause") == "self_test"
     assert _state(hass, "sensor.ups_custom_ups_last_transfer_cause") == "9"
+
+
+def _add_nps_guest(agent: FakeAgent) -> None:
+    """Clone device, phase and outlet rows of the PDU as NPS module 2."""
+    base = "1.3.6.1.4.1.318.1.1.26"
+    extra: dict[str, object] = {}
+    for oid, value in agent.values.items():
+        for table in (f"{base}.2.1.", f"{base}.4.2.1.", f"{base}.4.3.1."):
+            if oid.startswith(table) and oid.endswith(".1"):
+                extra[oid[:-2] + ".2"] = value
+        if oid.startswith(f"{base}.6.3.1.") and oid.endswith(".1"):
+            extra[oid[:-2] + ".2"] = value
+        for table in (f"{base}.9.2.3.1.", f"{base}.9.2.4.1."):
+            if oid.startswith(table):
+                prefix, index = oid.rsplit(".", 1)
+                extra[f"{prefix}.{int(index) + 24}"] = value
+    extra[f"{base}.2.1.2.2"] = 2  # ident module
+    extra[f"{base}.2.1.3.2"] = "Rack B"  # name
+    extra[f"{base}.2.1.9.2"] = "ZA0000000009"
+    extra[f"{base}.6.3.1.2.2"] = 2  # phase row 2 belongs to module 2
+    extra[f"{base}.6.3.1.3.2"] = 1  # ... and is its phase 1
+    extra[f"{base}.6.3.1.5.2"] = 37  # 3.7 A
+    extra[f"{base}.4.3.1.5.2"] = 50  # 500 W
+    for outlet in range(25, 49):
+        extra[f"{base}.9.2.3.1.2.{outlet}"] = 2
+    agent.values.update(extra)
+
+
+async def test_nps_guest_pdu_gets_own_device(hass: HomeAssistant, agent: FakeAgent) -> None:
+    """A chained PDU becomes a sub-device with its own power, phase and outlets."""
+    from homeassistant.helpers import device_registry as dr, entity_registry as er
+
+    agent.use("pdu")
+    _add_nps_guest(agent)
+    entry = make_entry("PDU", host="192.0.2.11")
+    await _setup(hass, entry)
+
+    assert _state(hass, "sensor.pdu_power") == "220"
+    assert _state(hass, "sensor.pdu_phase_current") == "1.2"
+    guest = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, f"{entry.entry_id}_module_2")})
+    assert guest is not None
+    assert guest.name == "PDU Rack B"
+    assert guest.serial_number == "ZA0000000009"
+    guest_entities = {
+        e.unique_id.removeprefix(f"{entry.entry_id}_")
+        for e in er.async_entries_for_device(er.async_get(hass), guest.id)
+    }
+    assert {"m2_pdu_load_watts", "m2_pdu_phase_current", "rpdu2_outlet_25", "rpdu2_outlet_48"} <= guest_entities
+    assert "rpdu2_outlet_1" not in guest_entities
+    assert _state(hass, "sensor.pdu_rack_b_power") == "500"
+    assert _state(hass, "sensor.pdu_rack_b_phase_current") == "3.7"
+    assert len(hass.states.async_all("switch")) == 48
