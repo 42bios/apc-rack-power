@@ -245,8 +245,10 @@ async def test_nps_guest_pdu_gets_own_device(hass: HomeAssistant, agent: FakeAge
 
     assert _state(hass, "sensor.pdu_power") == "220"
     assert _state(hass, "sensor.pdu_phase_current") == "1.2"
-    guest = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, f"{entry.entry_id}_module_2")})
-    assert guest is not None
+    devices = dr.async_entries_for_config_entry(dr.async_get(hass), entry.entry_id)
+    guest = next(d for d in devices if (DOMAIN, f"{entry.entry_id}_module_2") in d.identifiers)
+    main = next(d for d in devices if (DOMAIN, entry.entry_id) in d.identifiers)
+    assert guest.via_device_id == main.id
     assert guest.name == "PDU Rack B"
     assert guest.serial_number == "ZA0000000009"
     guest_entities = {
