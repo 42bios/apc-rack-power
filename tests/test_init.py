@@ -190,3 +190,17 @@ async def test_unload(hass: HomeAssistant, agent: FakeAgent) -> None:
     await _setup(hass, entry)
     assert await hass.config_entries.async_unload(entry.entry_id)
     assert entry.state is ConfigEntryState.NOT_LOADED
+
+
+async def test_custom_oid_does_not_shadow_builtin(hass: HomeAssistant, agent: FakeAgent) -> None:
+    """A custom OID named like a built-in value gets its own sensor."""
+    agent.use("ups")
+    entry = make_entry("UPS")
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(
+        entry, options={"custom_oids": "ups_last_transfer_cause=.1.3.6.1.4.1.318.1.1.1.3.2.5.0"}
+    )
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert _state(hass, "sensor.ups_last_transfer_cause") == "self_test"
+    assert _state(hass, "sensor.ups_custom_ups_last_transfer_cause") == "9"

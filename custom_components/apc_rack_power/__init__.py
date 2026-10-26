@@ -85,7 +85,8 @@ def parse_custom_oids(raw: str | None) -> list[MetricDef]:
         metric_key = key.strip().lower().replace(" ", "_")
         metric_oid = oid.strip()
         if metric_key and metric_oid:
-            defs.append(MetricDef(metric_key, ((metric_oid, 1.0),), allow_negative=True))
+            # Prefixed so a custom name never shadows a built-in value
+            defs.append(MetricDef(f"custom_{metric_key}", ((metric_oid, 1.0),), allow_negative=True))
     return defs
 
 

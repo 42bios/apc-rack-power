@@ -453,7 +453,7 @@ async def async_setup_entry(
             yield description.key, lambda description=description: ApcSensor(coordinator, description)
         for metric in coordinator.custom_metrics:
             if d.metrics.get(metric.key) is not None:
-                yield f"custom_{metric.key}", lambda key=metric.key: ApcCustomMetricSensor(coordinator, key)
+                yield metric.key, lambda key=metric.key: ApcCustomMetricSensor(coordinator, key)
         for description, placeholders in _dynamic_descriptions(d):
             yield (
                 description.key,
@@ -836,10 +836,10 @@ class ApcCustomMetricSensor(ApcEntity, SensorEntity):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator: ApcCoordinator, key: str) -> None:
-        super().__init__(coordinator, f"custom_{key}")
+        super().__init__(coordinator, key)
         self._key = key
         self._attr_translation_key = "custom_metric"
-        self._attr_translation_placeholders = {"key": key}
+        self._attr_translation_placeholders = {"key": key.removeprefix("custom_")}
 
     @property
     def native_value(self) -> Any:

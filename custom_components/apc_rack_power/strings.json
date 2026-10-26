@@ -75,21 +75,47 @@
   "options": {
     "step": {
       "init": {
-        "title": "APC Rack Power options",
-        "data": {
-          "scan_interval": "Scan interval",
-          "timeout": "Timeout",
-          "retries": "Retries",
-          "custom_oids": "Custom OIDs",
-          "trap_enabled": "Receive SNMP traps",
-          "trap_port": "Trap port (UDP)",
-          "trap_community": "Trap community"
-        },
-        "data_description": {
-          "custom_oids": "One per line as key=oid, for example ups_custom=.1.3.6.1.4.1.318.1.1.1.2.2.4.0",
-          "trap_enabled": "Poll immediately and fire an event when the card sends a trap. Add Home Assistant as trap receiver on the card (Configuration → Notification → Trap Receivers).",
-          "trap_port": "162 is the standard port. Use a port above 1024 if Home Assistant cannot open 162 and configure the same port on the card.",
-          "trap_community": "Community the card uses for traps. Leave empty to accept any community from this device."
+        "title": "Options",
+        "description": "Address, SNMP version and credentials are changed via **Reconfigure** in the menu of this entry.",
+        "sections": {
+          "polling": {
+            "name": "Polling",
+            "description": "How often and how patiently the network card is queried.",
+            "data": {
+              "scan_interval": "Scan interval",
+              "timeout": "Timeout",
+              "retries": "Retries"
+            },
+            "data_description": {
+              "scan_interval": "Seconds between two updates. 30 s is a good default; older cards (NMC2) answer slower.",
+              "timeout": "Seconds to wait for an answer.",
+              "retries": "Repeats before a request counts as failed."
+            }
+          },
+          "traps": {
+            "name": "SNMP traps",
+            "description": "Instant updates when the card reports an event (mains failure, alarms, outlet changes).",
+            "data": {
+              "trap_enabled": "Receive SNMP traps",
+              "trap_port": "Port (UDP)",
+              "trap_community": "Trap community"
+            },
+            "data_description": {
+              "trap_enabled": "Add Home Assistant as trap receiver on the card: Configuration → Notification → SNMP Traps → Trap Receivers.",
+              "trap_port": "162 is the standard. Use a port above 1024 if 162 is not available and set the same port on the card.",
+              "trap_community": "Community the card sends with its traps. Empty accepts any trap from this device."
+            }
+          },
+          "advanced": {
+            "name": "Advanced",
+            "description": "Additional values that the integration does not read on its own.",
+            "data": {
+              "custom_oids": "Custom OIDs"
+            },
+            "data_description": {
+              "custom_oids": "One per line as name=OID, e.g. battery_cartridge=.1.3.6.1.4.1.318.1.1.1.2.2.19.0. Each line becomes a diagnostic sensor."
+            }
+          }
         }
       }
     }

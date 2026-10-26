@@ -15,6 +15,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_HOST
 from homeassistant.core import callback
+from homeassistant.data_entry_flow import section
 from homeassistant.helpers.selector import (
     BooleanSelector,
     NumberSelector,
@@ -275,31 +276,49 @@ class ApcConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class ApcOptionsFlow(OptionsFlow):
-    """Polling and trap settings."""
+    """Polling, trap and expert settings, grouped in sections."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
-            data = dict(user_input)
+            flat: dict[str, Any] = {}
+            for section_input in user_input.values():
+                flat.update(section_input)
             for key in (CONF_SCAN_INTERVAL, CONF_TIMEOUT, CONF_RETRIES, CONF_TRAP_PORT):
-                data[key] = int(data[key])
-            return self.async_create_entry(data=data)
+                flat[key] = int(flat[key])
+            flat[CONF_CUSTOM_OIDS] = str(flat.get(CONF_CUSTOM_OIDS) or "").strip()
+            return self.async_create_entry(data=flat)
 
         options = self.config_entry.options
-        schema = vol.Schema(
+        polling = vol.Schema(
             {
                 vol.Required(
                     CONF_SCAN_INTERVAL, default=options.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)
                 ): _number(5, 600, "s"),
                 vol.Required(CONF_TIMEOUT, default=options.get(CONF_TIMEOUT, DEFAULT_TIMEOUT)): _number(1, 30, "s"),
                 vol.Required(CONF_RETRIES, default=options.get(CONF_RETRIES, DEFAULT_RETRIES)): _number(0, 10),
-                vol.Optional(CONF_CUSTOM_OIDS, default=options.get(CONF_CUSTOM_OIDS, "")): TextSelector(
-                    TextSelectorConfig(multiline=True)
-                ),
+            }
+        )
+        traps = vol.Schema(
+            {
                 vol.Required(CONF_TRAP_ENABLED, default=options.get(CONF_TRAP_ENABLED, False)): BooleanSelector(),
                 vol.Required(CONF_TRAP_PORT, default=options.get(CONF_TRAP_PORT, DEFAULT_TRAP_PORT)): _number(1, 65535),
                 vol.Optional(
                     CONF_TRAP_COMMUNITY, default=options.get(CONF_TRAP_COMMUNITY, DEFAULT_TRAP_COMMUNITY)
                 ): _PASSWORD,
+            }
+        )
+        advanced = vol.Schema(
+            {
+                vol.Optional(CONF_CUSTOM_OIDS, default=options.get(CONF_CUSTOM_OIDS, "")): TextSelector(
+                    TextSelectorConfig(multiline=True)
+                ),
+            }
+        )
+        schema = vol.Schema(
+            {
+                vol.Required("polling"): section(polling, {"collapsed": False}),
+                vol.Required("traps"): section(traps, {"collapsed": not options.get(CONF_TRAP_ENABLED, False)}),
+                vol.Required("advanced"): section(advanced, {"collapsed": not options.get(CONF_CUSTOM_OIDS)}),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)

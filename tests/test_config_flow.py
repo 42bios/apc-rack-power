@@ -197,15 +197,12 @@ async def test_options(hass: HomeAssistant, agent: FakeAgent) -> None:
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
         {
-            "scan_interval": 60,
-            "timeout": 5,
-            "retries": 2,
-            "custom_oids": "",
-            "trap_enabled": False,
-            "trap_port": 1162,
-            "trap_community": "public",
+            "polling": {"scan_interval": 60, "timeout": 5, "retries": 2},
+            "traps": {"trap_enabled": False, "trap_port": 1162, "trap_community": "public"},
+            "advanced": {"custom_oids": " x=.1.3.6.1.2.1.1.5.0 "},
         },
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.options["scan_interval"] == 60
     assert entry.options["trap_port"] == 1162
+    assert entry.options["custom_oids"] == "x=.1.3.6.1.2.1.1.5.0"
