@@ -216,8 +216,10 @@ async def _async_setup_traps(hass: HomeAssistant, entry: ApcConfigEntry, coordin
             entry.entry_id,
             str(entry.data[CONF_HOST]),
             port,
-            str(entry.options.get(CONF_TRAP_COMMUNITY, DEFAULT_TRAP_COMMUNITY)),
+            str(entry.options.get(CONF_TRAP_COMMUNITY, DEFAULT_TRAP_COMMUNITY) or "") or None,
             coordinator.handle_trap,
+            credentials=credentials_from(dict(entry.data)),
+            engine_id=coordinator.engine_id,
         )
     except OSError as err:
         _LOGGER.warning("Cannot listen for SNMP traps on UDP port %s: %s", port, err)

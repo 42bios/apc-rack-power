@@ -1,14 +1,14 @@
 """SNMP trap receiver for APC Rack Power.
 
 APC network cards send a trap the moment something happens (mains failure,
-switch to battery, alarms, outlet changes). The receiver matches the sender
-against the configured devices, fires an event and triggers an immediate poll,
-so Home Assistant no longer waits for the next scan interval.
+switch to battery, alarms, outlet changes). The receiver accepts SNMPv1/v2c
+traps with the configured community and SNMPv3 traps of the entry's user
+(authenticated and decrypted with its keys), matches the sender against the
+configured devices, fires an event and triggers an immediate poll.
 """
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 import logging
@@ -16,131 +16,154 @@ import socket
 from typing import Any
 
 from homeassistant.core import HomeAssistant, callback
-from pyasn1.codec.ber import decoder
-from pyasn1.type import univ
-from pysnmp.proto import api
+from pysnmp.carrier.asyncio.dgram import udp
+from pysnmp.entity import config
+from pysnmp.entity.engine import SnmpEngine
+from pysnmp.entity.rfc3413 import ntfrcv
+from pysnmp.proto import rfc1902
 
-from .const import DOMAIN
-from .snmp_client import convert_value
+from .const import DOMAIN, SNMP_V3
+from .snmp_client import AUTH_PROTOCOL_MAP, PRIV_PROTOCOL_MAP, SnmpCredentials, _create_engine, convert_value
 
 _LOGGER = logging.getLogger(__name__)
 
 DATA_TRAP_SERVERS = f"{DOMAIN}_trap_servers"
 
-_SNMP_TRAP_OID = "1.3.6.1.6.3.1.1.4.1.0"
-_GENERIC_TRAPS = "1.3.6.1.6.3.1.1.5"
+SNMP_TRAP_OID = "1.3.6.1.6.3.1.1.4.1.0"
+SYS_UPTIME = "1.3.6.1.2.1.1.3.0"
+OID_ENGINE_ID = ".1.3.6.1.6.3.10.2.1.1.0"
 
 
 @dataclass(slots=True, frozen=True)
 class TrapInfo:
-    """A decoded trap."""
+    """A received trap."""
 
     source: str
-    version: str
-    community: str
     trap_oid: str
     varbinds: dict[str, Any]
 
 
-def decode_trap(data: bytes, source: str) -> TrapInfo | None:
-    """Decode an SNMPv1/v2c trap; return None for anything else."""
-    version = int(api.decodeMessageVersion(data))
-    if version not in api.PROTOCOL_MODULES:
-        return None
-    proto = api.PROTOCOL_MODULES[version]
-    message, _rest = decoder.decode(data, asn1Spec=proto.Message())
-    community = str(proto.apiMessage.get_community(message))
-    pdu = proto.apiMessage.get_pdu(message)
+@dataclass(slots=True)
+class _Registration:
+    addresses: set[str]
+    handler: Callable[[TrapInfo], None]
+    community_index: str | None = None
+    v3_user: tuple[str, Any] | None = None
 
-    if version == api.SNMP_VERSION_1:
-        if not pdu.isSameTypeWith(proto.TrapPDU()):
+
+def engine_id_bytes(value: Any) -> bytes | None:
+    """Convert the snmpEngineID read via SNMP ("0x8000...") into bytes."""
+    if isinstance(value, str) and value.startswith("0x") and len(value) > 10:
+        try:
+            return bytes.fromhex(value[2:])
+        except ValueError:
             return None
-        enterprise = str(proto.apiTrapPDU.get_enterprise(pdu))
-        generic = int(proto.apiTrapPDU.get_generic_trap(pdu))
-        specific = int(proto.apiTrapPDU.get_specific_trap(pdu))
-        trap_oid = f"{enterprise}.0.{specific}" if generic == 6 else f"{_GENERIC_TRAPS}.{generic + 1}"
-        var_binds = proto.apiTrapPDU.get_varbinds(pdu)
-        label = "v1"
-    else:
-        if not pdu.isSameTypeWith(proto.SNMPv2TrapPDU()):
-            return None
-        var_binds = proto.apiTrapPDU.get_varbinds(pdu)
-        trap_oid = ""
-        label = "v2c"
-
-    values: dict[str, Any] = {}
-    for oid, value in var_binds:
-        key = str(oid)
-        # Values arrive as ObjectSyntax choices; take the innermost component.
-        if isinstance(value, univ.Choice):
-            value = value.getComponent(innerFlag=True)
-        converted = convert_value(value)
-        if key == _SNMP_TRAP_OID:
-            trap_oid = str(converted)
-            continue
-        values[key] = converted
-    return TrapInfo(source=source, version=label, community=community, trap_oid=trap_oid, varbinds=values)
-
-
-class _TrapProtocol(asyncio.DatagramProtocol):
-    def __init__(self, server: TrapServer) -> None:
-        self._server = server
-
-    def datagram_received(self, data: bytes, addr: tuple[str, int]) -> None:
-        self._server.handle_datagram(data, addr[0])
+    return None
 
 
 class TrapServer:
-    """One UDP listener shared by all entries on the same port."""
+    """One UDP listener (and SNMP engine) shared by all entries on a port."""
 
     def __init__(self, port: int) -> None:
         self.port = port
-        self._transport: asyncio.DatagramTransport | None = None
-        # source ip -> {entry_id: (community, callback)}
-        self._handlers: dict[str, dict[str, tuple[str, Callable[[TrapInfo], None]]]] = {}
+        self._engine: SnmpEngine | None = None
+        self._transport: udp.UdpAsyncioTransport | None = None
+        self._registrations: dict[str, _Registration] = {}
 
-    async def async_start(self) -> None:
-        loop = asyncio.get_running_loop()
-        transport, _protocol = await loop.create_datagram_endpoint(
-            lambda: _TrapProtocol(self), local_addr=("0.0.0.0", self.port), family=socket.AF_INET
-        )
-        self._transport = transport
+    async def async_start(self, hass: HomeAssistant, host: str = "0.0.0.0") -> None:
+        """Bind the port (raises OSError if it is not available)."""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.setblocking(False)
+            sock.bind((host, self.port))
+        except OSError:
+            sock.close()
+            raise
+        self._engine = await hass.async_add_executor_job(_create_engine)
+        self._transport = udp.UdpAsyncioTransport().open_server_mode(sock=sock)
+        config.add_transport(self._engine, udp.DOMAIN_NAME, self._transport)
+        ntfrcv.NotificationReceiver(self._engine, self._on_notification)
 
     def stop(self) -> None:
         if self._transport is not None:
-            self._transport.close()
+            self._transport.close_transport()
             self._transport = None
+        self._engine = None
 
     @property
     def empty(self) -> bool:
-        return not any(self._handlers.values())
+        return not self._registrations
 
-    def register(self, entry_id: str, addresses: set[str], community: str, handler: Callable[[TrapInfo], None]) -> None:
-        for address in addresses:
-            self._handlers.setdefault(address, {})[entry_id] = (community, handler)
+    def register(
+        self,
+        entry_id: str,
+        addresses: set[str],
+        handler: Callable[[TrapInfo], None],
+        community: str | None,
+        credentials: SnmpCredentials | None = None,
+        engine_id: bytes | None = None,
+    ) -> None:
+        """Accept traps of one device."""
+        assert self._engine is not None
+        registration = _Registration(addresses=addresses, handler=handler)
+        if community:
+            registration.community_index = f"apc-{entry_id}"
+            config.add_v1_system(self._engine, registration.community_index, community)
+        if credentials is not None and credentials.version == SNMP_V3 and credentials.v3_username and engine_id:
+            auth = AUTH_PROTOCOL_MAP.get(credentials.v3_auth_protocol.lower(), AUTH_PROTOCOL_MAP["none"])
+            priv = PRIV_PROTOCOL_MAP.get(credentials.v3_priv_protocol.lower(), PRIV_PROTOCOL_MAP["none"])
+            security_engine = rfc1902.OctetString(engine_id)
+            kwargs: dict[str, Any] = {"securityEngineId": security_engine}
+            if auth != AUTH_PROTOCOL_MAP["none"]:
+                kwargs.update(authProtocol=auth, authKey=credentials.v3_auth_passphrase)
+                if priv != PRIV_PROTOCOL_MAP["none"]:
+                    kwargs.update(privProtocol=priv, privKey=credentials.v3_priv_passphrase)
+            config.add_v3_user(self._engine, credentials.v3_username, **kwargs)
+            registration.v3_user = (credentials.v3_username, security_engine)
+        self._registrations[entry_id] = registration
 
     def unregister(self, entry_id: str) -> None:
-        for handlers in self._handlers.values():
-            handlers.pop(entry_id, None)
+        registration = self._registrations.pop(entry_id, None)
+        if registration is None or self._engine is None:
+            return
+        if registration.community_index:
+            config.delete_v1_system(self._engine, registration.community_index)
+        if registration.v3_user:
+            user, engine_id = registration.v3_user
+            config.delete_v3_user(self._engine, user, securityEngineId=engine_id)
 
     @callback
-    def handle_datagram(self, data: bytes, source: str) -> None:
-        handlers = self._handlers.get(source)
-        if not handlers:
+    def _on_notification(
+        self,
+        snmp_engine: SnmpEngine,
+        state_reference: Any,
+        context_engine_id: Any,
+        context_name: Any,
+        var_binds: Any,
+        cb_ctx: Any,
+    ) -> None:
+        try:
+            _domain, address = snmp_engine.message_dispatcher.get_transport_info(state_reference)
+            source = str(address[0])
+        except Exception:  # noqa: BLE001 - a strange packet must never break the receiver
+            return
+        targets = [r for r in self._registrations.values() if source in r.addresses]
+        if not targets:
             _LOGGER.debug("Ignoring trap from unknown sender %s", source)
             return
-        try:
-            trap = decode_trap(data, source)
-        except Exception as err:  # noqa: BLE001 - malformed datagrams must never break the listener
-            _LOGGER.debug("Cannot decode trap from %s: %s", source, err)
-            return
-        if trap is None:
-            return
-        for community, handler in handlers.values():
-            if community and trap.community != community:
-                _LOGGER.debug("Ignoring trap from %s with unexpected community", source)
-                continue
-            handler(trap)
+        trap_oid = ""
+        values: dict[str, Any] = {}
+        for oid, value in var_binds:
+            key = str(oid)
+            converted = convert_value(value)
+            if key == SNMP_TRAP_OID:
+                trap_oid = str(converted)
+            elif key != SYS_UPTIME:
+                values[key] = converted
+        trap = TrapInfo(source=source, trap_oid=trap_oid, varbinds=values)
+        _LOGGER.debug("Trap %s from %s", trap_oid, source)
+        for registration in targets:
+            registration.handler(trap)
 
 
 async def async_register_trap_handler(
@@ -148,8 +171,10 @@ async def async_register_trap_handler(
     entry_id: str,
     host: str,
     port: int,
-    community: str,
+    community: str | None,
     handler: Callable[[TrapInfo], None],
+    credentials: SnmpCredentials | None = None,
+    engine_id: bytes | None = None,
 ) -> Callable[[], None]:
     """Listen for traps of one device; returns the unregister callback.
 
@@ -159,7 +184,7 @@ async def async_register_trap_handler(
     server = servers.get(port)
     if server is None:
         server = TrapServer(port)
-        await server.async_start()
+        await server.async_start(hass)
         servers[port] = server
 
     addresses = {host}
@@ -168,7 +193,7 @@ async def async_register_trap_handler(
         addresses.update(info[4][0] for info in infos)
     except OSError:
         _LOGGER.debug("Cannot resolve %s for trap matching", host)
-    server.register(entry_id, addresses, community, handler)
+    server.register(entry_id, addresses, handler, community, credentials, engine_id)
 
     @callback
     def _unregister() -> None:

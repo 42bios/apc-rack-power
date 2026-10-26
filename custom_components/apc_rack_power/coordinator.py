@@ -23,6 +23,7 @@ from .const import (
     EVENT_TRAP,
     FLAG_REPLACE_BATTERY,
     METRICS,
+    SNMP_V3,
     TABLES,
     ControlTableDef,
     MetricDef,
@@ -36,6 +37,7 @@ from .device_profile import (
     parse_flags,
 )
 from .snmp_client import ApcSnmpAuthError, ApcSnmpClient, ApcSnmpError, async_read_mac
+from .traps import OID_ENGINE_ID, engine_id_bytes
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -141,6 +143,8 @@ class ApcCoordinator(DataUpdateCoordinator[ApcSnapshot]):
         self._table_rows: dict[str, dict[str, dict[str, Any]]] = {}
         self._polls = 0
         self.mac: str | None = None
+        # snmpEngineID of the card, needed to verify its SNMPv3 traps
+        self.engine_id: bytes | None = None
         self._discovery_task: asyncio.Task | None = None
         self.trap_count = 0
         self.last_trap: dict[str, Any] | None = None
@@ -277,6 +281,11 @@ class ApcCoordinator(DataUpdateCoordinator[ApcSnapshot]):
     async def _discover(self, device_kind: str) -> None:
         """Find outlets, outlet groups and tables the device supports."""
         self.mac = await async_read_mac(self.client) or self.mac
+        if self.engine_id is None and self.client.credentials.version == SNMP_V3:
+            try:
+                self.engine_id = engine_id_bytes(await self.client.get(OID_ENGINE_ID))
+            except ApcSnmpError as err:
+                _LOGGER.debug("Cannot read the engine ID: %s", err)
         controls: list[ControlPoint] = []
         have_pdu_table = False
         for table in CONTROL_TABLES:

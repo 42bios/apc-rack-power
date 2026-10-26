@@ -102,9 +102,9 @@
               "trap_community": "Trap community"
             },
             "data_description": {
-              "trap_enabled": "Add Home Assistant as trap receiver on the card: Configuration → Notification → SNMP Traps → Trap Receivers.",
+              "trap_enabled": "Add Home Assistant as trap receiver on the card (Configuration → Notification → SNMP Traps → Trap Receivers). SNMPv3 traps use this entry's SNMPv3 user. A firewall on the Home Assistant host must allow UDP from the card.",
               "trap_port": "162 is the standard. Use a port above 1024 if 162 is not available and set the same port on the card.",
-              "trap_community": "Community the card sends with its traps. Empty accepts any trap from this device."
+              "trap_community": "Community the card sends with SNMPv1/v2c traps. SNMPv3 traps are verified and decrypted with this entry's user. Empty: SNMPv3 traps only."
             }
           },
           "advanced": {
