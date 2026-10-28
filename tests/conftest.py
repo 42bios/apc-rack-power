@@ -31,7 +31,7 @@ class FakeAgent:
 
     def __init__(self) -> None:
         self.values: dict[str, Any] = {}
-        self.writes: list[tuple[str, int]] = []
+        self.writes: list[tuple[str, int | str]] = []
         self.get_error: Exception | None = None
         self.set_error: Exception | None = None
 
@@ -52,10 +52,11 @@ class FakeAgent:
         prefix = root.lstrip(".") + "."
         return {oid: value for oid, value in self.values.items() if oid.startswith(prefix)}
 
-    async def set_integer(self, oid: str, value: int) -> None:
+    async def set_integer(self, oid: str, value: int | str) -> None:
         if self.set_error:
             raise self.set_error
         self.writes.append((oid.lstrip("."), value))
+        self.values[oid.lstrip(".")] = value
 
 
 @pytest.fixture(autouse=True)
@@ -76,6 +77,8 @@ def agent() -> Generator[FakeAgent]:
         patch.object(ApcSnmpClient, "get", lambda self, oid: fake.get(oid)),
         patch.object(ApcSnmpClient, "walk", lambda self, root, max_rows=1024: fake.walk(root, max_rows)),
         patch.object(ApcSnmpClient, "set_integer", lambda self, oid, value: fake.set_integer(oid, value)),
+        patch.object(ApcSnmpClient, "set_text", lambda self, oid, value: fake.set_integer(oid, value)),
+        patch.object(ApcSnmpClient, "set_timeticks", lambda self, oid, value: fake.set_integer(oid, value)),
         patch("custom_components.apc_rack_power.coordinator.asyncio.sleep", AsyncMock()),
     ):
         yield fake

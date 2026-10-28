@@ -487,6 +487,24 @@
       },
       "custom_metric": {
         "name": "Eigener Wert {key}"
+      },
+      "ups_input_line_voltage": {
+        "name": "Eingang L{line} Spannung"
+      },
+      "ups_input_line_current": {
+        "name": "Eingang L{line} Strom"
+      },
+      "ups_input_line_power": {
+        "name": "Eingang L{line} Leistung"
+      },
+      "ups_output_line_voltage": {
+        "name": "Ausgang L{line} Spannung"
+      },
+      "ups_output_line_current": {
+        "name": "Ausgang L{line} Strom"
+      },
+      "ups_output_line_power": {
+        "name": "Ausgang L{line} Leistung"
       }
     },
     "binary_sensor": {
@@ -568,6 +586,43 @@
       "outlet_group": {
         "name": "{name}"
       }
+    },
+    "text": {
+      "outlet_name": {
+        "name": "{name} Name"
+      }
+    },
+    "number": {
+      "outlet_on_delay": {
+        "name": "{name} Einschaltverzögerung"
+      },
+      "outlet_off_delay": {
+        "name": "{name} Ausschaltverzögerung"
+      },
+      "outlet_reboot_duration": {
+        "name": "{name} Neustart-Dauer"
+      },
+      "phase_near_overload_threshold": {
+        "name": "Phase {phase} Warnschwelle"
+      },
+      "phase_overload_threshold": {
+        "name": "Phase {phase} Überlastschwelle"
+      },
+      "ups_low_battery_runtime": {
+        "name": "Restlaufzeit für Batterie schwach"
+      }
+    },
+    "event": {
+      "card_message": {
+        "name": "Meldung der Karte",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "message": "Meldung"
+            }
+          }
+        }
+      }
     }
   },
   "exceptions": {
@@ -591,6 +646,9 @@
     },
     "unknown_control": {
       "message": "Keine Steckdose oder Ausgangsgruppe mit der uid {control_uid}."
+    },
+    "not_writable": {
+      "message": "Diese Einstellung lässt sich an diesem Gerät nicht ändern."
     }
   },
   "issues": {
@@ -643,6 +701,19 @@
           "description": "on, off oder cycle (Neustart)."
         }
       }
+    }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "on_battery": "{entity_name} wechselt auf Batterie",
+      "on_mains": "{entity_name} wieder im Netzbetrieb",
+      "low_battery": "{entity_name} Batterie schwach",
+      "replace_battery": "{entity_name} braucht eine neue Batterie",
+      "ups_overload": "{entity_name} überlastet",
+      "ups_alarm": "{entity_name} meldet einen Alarm",
+      "pdu_overload": "{entity_name} überlastet",
+      "pdu_near_overload": "{entity_name} nahe Überlast",
+      "card_message": "{entity_name} meldet etwas"
     }
   }
 }

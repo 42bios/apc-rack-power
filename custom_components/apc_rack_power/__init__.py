@@ -8,7 +8,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import config_validation as cv, issue_registry as ir
+from homeassistant.helpers import config_validation as cv, device_registry as dr, issue_registry as ir
 from homeassistant.helpers.service import async_register_admin_service
 from homeassistant.helpers.typing import ConfigType
 import voluptuous as vol
@@ -244,6 +244,15 @@ async def _async_update_listener(hass: HomeAssistant, entry: ApcConfigEntry) -> 
 async def async_unload_entry(hass: HomeAssistant, entry: ApcConfigEntry) -> bool:
     """Unload an entry."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_remove_config_entry_device(hass: HomeAssistant, entry: ApcConfigEntry, device: dr.DeviceEntry) -> bool:
+    """Allow deleting a chained PDU that the device no longer reports."""
+    if (DOMAIN, entry.entry_id) in device.identifiers:
+        return False
+    data = entry.runtime_data.data
+    modules = {row.get("module") for row in (data.tables.get("device_rpdu2", {}) if data else {}).values()}
+    return not any((DOMAIN, f"{entry.entry_id}_module_{module}") in device.identifiers for module in modules)
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ApcConfigEntry) -> None:
