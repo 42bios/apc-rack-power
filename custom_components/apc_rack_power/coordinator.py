@@ -514,7 +514,9 @@ class ApcCoordinator(DataUpdateCoordinator[ApcSnapshot]):
             raise HomeAssistantError(translation_domain=DOMAIN, translation_key="not_writable")
         await self.async_write(control.name_write_oid, name, "text", refresh=False)
         self._controls = [replace(c, name=name) if c.uid == control.uid else c for c in self._controls]
-        await self.async_request_refresh()
+        if self.data:
+            self.data.controls = list(self._controls)
+        self._show_change()
 
     async def async_set_control_setting(self, control: ControlPoint, key: str, value: int) -> None:
         """Change a delay or the reboot duration of an outlet."""
@@ -523,13 +525,25 @@ class ApcCoordinator(DataUpdateCoordinator[ApcSnapshot]):
             raise HomeAssistantError(translation_domain=DOMAIN, translation_key="not_writable")
         await self.async_write(oid, value, refresh=False)
         self._control_settings.setdefault(control.uid, {})[key] = value
-        await self.async_request_refresh()
+        if self.data:
+            self.data.control_settings.setdefault(control.uid, {})[key] = value
+        self._show_change()
 
     async def async_set_table_value(self, table_key: str, index: str, column: str, oid: str, value: int) -> None:
         """Write a configuration cell of a table (e.g. a phase threshold)."""
         await self.async_write(f"{oid}.{index}", value, refresh=False)
         self._table_rows.setdefault(table_key, {}).setdefault(index, {})[column] = value
-        await self.async_request_refresh()
+        if self.data:
+            self.data.tables.setdefault(table_key, {}).setdefault(index, {})[column] = value
+        self._show_change()
+
+    @callback
+    def _show_change(self) -> None:
+        """Show a written setting at once; the device is read again shortly after."""
+        self.async_update_listeners()
+        self.config_entry.async_create_background_task(
+            self.hass, self.async_request_refresh(), f"{DOMAIN}_refresh_after_write"
+        )
 
     # ------------------------------------------------------------------ issues
 
