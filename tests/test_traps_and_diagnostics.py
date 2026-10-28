@@ -115,14 +115,14 @@ async def test_trap_fires_event_and_refreshes(hass: HomeAssistant, agent: FakeAg
     entry = make_entry()
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     events: list[Event] = []
     hass.bus.async_listen(EVENT_TRAP, events.append)
     entry.runtime_data.handle_trap(
         TrapInfo("192.0.2.10", "1.3.6.1.4.1.318.0.5", {"1.3.6.1.4.1.318.2.3.3.0": "UPS: On battery power"})
     )
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert events[0].data["trap_oid"] == "1.3.6.1.4.1.318.0.5"
     assert events[0].data["message"] == "UPS: On battery power"
     assert entry.runtime_data.trap_count == 1
@@ -135,7 +135,7 @@ async def test_diagnostics_redacts_credentials(
     entry = make_entry(write_community="private")
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
     result: dict[str, Any] = await get_diagnostics_for_config_entry(hass, hass_client, entry)
     assert result["data"]["host"] == "**REDACTED**"

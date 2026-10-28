@@ -19,7 +19,7 @@ from .conftest import FakeAgent, make_entry
 async def _setup(hass: HomeAssistant, entry: MockConfigEntry) -> None:
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
 
 
 def _state(hass: HomeAssistant, entity_id: str) -> str:
@@ -152,7 +152,7 @@ async def test_auth_error_starts_reauth(hass: HomeAssistant, agent: FakeAgent) -
     entry = make_entry("UPS", snmp_version="v3", v3_username="ha")
     entry.add_to_hass(hass)
     await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert entry.state is ConfigEntryState.SETUP_ERROR
     assert any(flow["context"]["source"] == "reauth" for flow in hass.config_entries.flow.async_progress())
 
@@ -203,7 +203,7 @@ async def test_custom_oid_does_not_shadow_builtin(hass: HomeAssistant, agent: Fa
         entry, options={"custom_oids": "ups_last_transfer_cause=.1.3.6.1.4.1.318.1.1.1.3.2.5.0"}
     )
     assert await hass.config_entries.async_setup(entry.entry_id)
-    await hass.async_block_till_done()
+    await hass.async_block_till_done(wait_background_tasks=True)
     assert _state(hass, "sensor.ups_last_transfer_cause") == "self_test"
     assert _state(hass, "sensor.ups_custom_ups_last_transfer_cause") == "9"
 

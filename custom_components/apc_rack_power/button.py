@@ -20,7 +20,7 @@ from .const import (
 )
 from .coordinator import ApcCoordinator, ApcSnapshot, ControlPoint
 from .device_profile import kind_matches
-from .entity import ApcEntity, add_entities_when_found
+from .entity import ApcControlEntity, ApcEntity, add_entities_when_found
 
 PARALLEL_UPDATES = 1
 
@@ -107,16 +107,14 @@ class ApcCommandButton(ApcEntity, ButtonEntity):
         await self.coordinator.async_write(self.entity_description.oid, self.entity_description.value)
 
 
-class ApcRebootButton(ApcEntity, ButtonEntity):
+class ApcRebootButton(ApcControlEntity, ButtonEntity):
     """Power cycles an outlet or outlet group (off, then on after the configured delay)."""
 
     _attr_device_class = ButtonDeviceClass.RESTART
 
     def __init__(self, coordinator: ApcCoordinator, control: ControlPoint) -> None:
-        super().__init__(coordinator, f"{control.uid}_reboot", control.module)
-        self._control = control
+        super().__init__(coordinator, f"{control.uid}_reboot", control)
         self._attr_translation_key = "outlet_group_reboot" if control.kind == DEVICE_UPS else "outlet_reboot"
-        self._attr_translation_placeholders = {"name": control.name}
 
     async def async_press(self) -> None:
         await self.coordinator.async_control(self._control, "reboot")

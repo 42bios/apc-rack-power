@@ -68,7 +68,7 @@ DEFAULT_SNMP_VERSION = SNMP_V2C
 DEFAULT_TRAP_PORT = 162
 DEFAULT_TRAP_COMMUNITY = "public"
 
-PLATFORMS: list[str] = ["binary_sensor", "button", "select", "sensor", "switch"]
+PLATFORMS: list[str] = ["binary_sensor", "button", "event", "number", "select", "sensor", "switch", "text"]
 
 SERVICE_SET_OID = "set_oid"
 SERVICE_CONTROL_ACTION = "control_action"
@@ -112,6 +112,7 @@ _RFC = ".1.3.6.1.2.1.33.1"
 _RPDU2 = ".1.3.6.1.4.1.318.1.1.26"
 _RPDU = ".1.3.6.1.4.1.318.1.1.12"
 _SPDU = ".1.3.6.1.4.1.318.1.1.4"
+_EPDU = ".1.3.6.1.4.1.318.1.1.30"
 
 METRICS: tuple[MetricDef, ...] = (
     # MIB-2 system group
@@ -169,30 +170,37 @@ METRICS: tuple[MetricDef, ...] = (
     _m("ups_last_calibration", f"{_UPS}.7.2.7.0"),
     _m("ups_flash_and_beep", f"{_UPS}.6.2.5.0"),
     _m("ups_alarm_beeper", f"{_UPS}.5.2.4.0"),
+    _m("ups_low_battery_runtime", f"{_UPS}.5.2.8.0"),
     # Rack PDU identification (rPDU2, then rPDU, then the MasterSwitch sPDU)
     _m("pdu_name", f"{_RPDU2}.2.1.3.1", f"{_RPDU}.1.1.0"),
     _m("pdu_location", f"{_RPDU2}.2.1.4.1"),
     _m("pdu_hardware_rev", f"{_RPDU2}.2.1.5.1", f"{_RPDU}.1.2.0", f"{_SPDU}.1.1.0"),
     _m("pdu_firmware_rpdu", f"{_RPDU2}.2.1.6.1", f"{_RPDU}.1.3.0", f"{_SPDU}.1.2.0"),
-    _m("pdu_model_number", f"{_RPDU2}.2.1.8.1", f"{_RPDU}.1.5.0", f"{_SPDU}.1.4.0"),
-    _m("pdu_serial_number", f"{_RPDU2}.2.1.9.1", f"{_RPDU}.1.6.0", f"{_SPDU}.1.5.0"),
+    _m("pdu_model_number", f"{_RPDU2}.2.1.8.1", f"{_RPDU}.1.5.0", f"{_SPDU}.1.4.0", f"{_EPDU}.2.1.1.4.1"),
+    _m("pdu_serial_number", f"{_RPDU2}.2.1.9.1", f"{_RPDU}.1.6.0", f"{_SPDU}.1.5.0", f"{_EPDU}.2.1.1.5.1"),
     _m("pdu_contact", f"{_RPDU2}.2.1.10.1"),
     _m("pdu_firmware_bootmon", f"{_RPDU2}.2.1.11.1"),
     # Rack PDU properties
     _m("pdu_device_num_outlets", f"{_RPDU2}.4.2.1.4.1", f"{_RPDU}.1.8.0", f"{_SPDU}.4.1.0"),
-    _m("pdu_num_phases", f"{_RPDU2}.4.2.1.7.1", f"{_RPDU}.1.9.0"),
+    _m("pdu_num_phases", f"{_RPDU2}.4.2.1.7.1", f"{_RPDU}.1.9.0", f"{_EPDU}.2.1.1.6.1"),
     _m("pdu_bank_count", f"{_RPDU2}.7.0", f"{_RPDU}.2.1.4.0"),
     _m("pdu_max_current", f"{_RPDU2}.4.2.1.9.1", f"{_RPDU}.1.7.0"),
     _m("pdu_power_rating", (f"{_RPDU2}.4.2.1.13.1", 100.0)),
     # Rack PDU device status
     _m("pdu_load_state", f"{_RPDU2}.4.3.1.4.1"),
-    _m("pdu_power", (f"{_RPDU2}.4.3.1.5.1", 10.0)),
+    _m("pdu_power", (f"{_RPDU2}.4.3.1.5.1", 10.0), f"{_EPDU}.2.1.1.7.1"),
     _m("pdu_peak_power_kw", (f"{_RPDU2}.4.3.1.6.1", 0.01), precision=2),
-    _m("pdu_energy_kwh", (f"{_RPDU2}.4.3.1.9.1", 0.1), (f"{_RPDU2}.11.3.0", 0.1), precision=1),
+    _m(
+        "pdu_energy_kwh",
+        (f"{_RPDU2}.4.3.1.9.1", 0.1),
+        (f"{_RPDU2}.11.3.0", 0.1),
+        (f"{_EPDU}.2.1.1.11.1", 0.001),
+        precision=1,
+    ),
     _m("pdu_power_supply_alarm", f"{_RPDU2}.4.3.1.12.1"),
     _m("pdu_legacy_power_supply_alarm", f"{_RPDU}.4.1.3.0"),
-    _m("pdu_apparent_power", (f"{_RPDU2}.4.3.1.16.1", 10.0)),
-    _m("pdu_device_power_factor", (f"{_RPDU2}.4.3.1.17.1", 0.01), precision=2),
+    _m("pdu_apparent_power", (f"{_RPDU2}.4.3.1.16.1", 10.0), f"{_EPDU}.2.1.1.9.1"),
+    _m("pdu_device_power_factor", (f"{_RPDU2}.4.3.1.17.1", 0.01), (f"{_EPDU}.2.1.1.10.1", 0.001), precision=2),
     _m("pdu_nps_type", f"{_RPDU2}.4.3.1.18.1"),
     # Shared environment units
     _m("mem_temp_units", ".1.3.6.1.4.1.318.1.1.10.4.2.1.0"),
@@ -260,6 +268,36 @@ TABLES: tuple[TableDef, ...] = (
             "low_load_threshold": _c(f"{_RPDU2}.6.1.1.5"),
             "near_overload_threshold": _c(f"{_RPDU2}.6.1.1.6"),
             "overload_threshold": _c(f"{_RPDU2}.6.1.1.7"),
+        },
+    ),
+    # ePDU (Easy PDU) phases: voltage 0.1 V, current 0.01 A, power W, PF 0.1 %
+    TableDef(
+        "phase_epdu",
+        columns={
+            "voltage": _c(f"{_EPDU}.4.2.1.4", 0.1, 1),
+            "current": _c(f"{_EPDU}.4.2.1.5", 0.01, 2),
+            "power": _c(f"{_EPDU}.4.2.1.6"),
+            "power_factor": _c(f"{_EPDU}.4.2.1.9", 0.001, 2),
+        },
+        static_columns={"module": _c(f"{_EPDU}.4.2.1.2"), "number": _c(f"{_EPDU}.4.2.1.3")},
+    ),
+    # UPS input/output lines (RFC 1628); only shown when there is more than one (3-phase UPS)
+    TableDef(
+        "ups_input_lines",
+        columns={
+            "frequency": _c(f"{_RFC}.3.3.1.2", 0.1, 1),
+            "voltage": _c(f"{_RFC}.3.3.1.3"),
+            "current": _c(f"{_RFC}.3.3.1.4", 0.1, 1),
+            "power": _c(f"{_RFC}.3.3.1.5"),
+        },
+    ),
+    TableDef(
+        "ups_output_lines",
+        columns={
+            "voltage": _c(f"{_RFC}.4.4.1.2"),
+            "current": _c(f"{_RFC}.4.4.1.3", 0.1, 1),
+            "power": _c(f"{_RFC}.4.4.1.4"),
+            "load": _c(f"{_RFC}.4.4.1.5"),
         },
     ),
     # rPDU2 banks (only on models with breaker banks)
@@ -376,6 +414,14 @@ class ControlTableDef:
     cmd_reboot: int | None = 3
     # Column with the NPS module number of each row (rPDU2 only)
     module_oid: str | None = None
+    # Writable configuration columns (None = not available)
+    name_write_oid: str | None = None
+    name_max_length: int = 20
+    on_delay_oid: str | None = None
+    off_delay_oid: str | None = None
+    reboot_duration_oid: str | None = None
+    delay_range: tuple[int, int] = (-1, 7200)
+    reboot_range: tuple[int, int] = (5, 60)
 
 
 # PDU tables are mutually exclusive: the first one that answers is used
@@ -390,6 +436,10 @@ CONTROL_TABLES: tuple[ControlTableDef, ...] = (
         state_on=2,
         state_off=1,
         module_oid=f"{_RPDU2}.9.2.3.1.2",
+        name_write_oid=f"{_RPDU2}.9.2.1.1.3",
+        on_delay_oid=f"{_RPDU2}.9.2.1.1.5",
+        off_delay_oid=f"{_RPDU2}.9.2.1.1.6",
+        reboot_duration_oid=f"{_RPDU2}.9.2.1.1.7",
     ),
     ControlTableDef(
         key="rpdu_outlet",
@@ -399,6 +449,10 @@ CONTROL_TABLES: tuple[ControlTableDef, ...] = (
         command_oid=f"{_RPDU}.3.3.1.1.4",
         state_on=1,
         state_off=2,
+        name_write_oid=f"{_RPDU}.3.4.1.1.2",
+        on_delay_oid=f"{_RPDU}.3.4.1.1.4",
+        off_delay_oid=f"{_RPDU}.3.4.1.1.5",
+        reboot_duration_oid=f"{_RPDU}.3.4.1.1.6",
     ),
     ControlTableDef(
         key="spdu_outlet",
@@ -408,6 +462,23 @@ CONTROL_TABLES: tuple[ControlTableDef, ...] = (
         command_oid=f"{_SPDU}.4.2.1.3",
         state_on=1,
         state_off=2,
+        name_write_oid=f"{_SPDU}.5.2.1.3",
+        on_delay_oid=f"{_SPDU}.5.2.1.2",
+        off_delay_oid=f"{_SPDU}.5.2.1.4",
+        reboot_duration_oid=f"{_SPDU}.5.2.1.5",
+        delay_range=(-1, 300),
+    ),
+    # ePDU (Easy PDU): no names, no reboot command
+    ControlTableDef(
+        key="epdu_outlet",
+        kind=DEVICE_PDU,
+        name_oid=f"{_EPDU}.6.1.1.3",
+        state_oid=f"{_EPDU}.6.1.1.4",
+        command_oid=f"{_EPDU}.6.2.1.4",
+        state_on=2,
+        state_off=1,
+        cmd_reboot=None,
+        module_oid=f"{_EPDU}.6.1.1.2",
     ),
     ControlTableDef(
         key="ups_outlet_group",
@@ -417,6 +488,12 @@ CONTROL_TABLES: tuple[ControlTableDef, ...] = (
         command_oid=f"{_UPS}.12.3.2.1.3",
         state_on=1,
         state_off=2,
+        name_write_oid=f"{_UPS}.12.2.2.1.2",
+        on_delay_oid=f"{_UPS}.12.2.2.1.3",
+        off_delay_oid=f"{_UPS}.12.2.2.1.4",
+        reboot_duration_oid=f"{_UPS}.12.2.2.1.5",
+        delay_range=(-1, 32767),
+        reboot_range=(0, 32767),
     ),
 )
 
@@ -425,6 +502,12 @@ OID_UPS_TEST = f"{_UPS}.7.2.2.0"  # testDiagnostics(2)
 OID_UPS_CALIBRATION = f"{_UPS}.7.2.5.0"  # performCalibration(2), cancel(3)
 OID_UPS_FLASH_AND_BEEP = f"{_UPS}.6.2.5.0"  # flashAndBeep(2)
 OID_UPS_ALARM_BEEPER = f"{_UPS}.5.2.4.0"  # timed(1) atLowBattery(2) never(3) mute(4)
+OID_UPS_LOW_BATTERY_RUNTIME = f"{_UPS}.5.2.8.0"  # TimeTicks
+OID_PHASE_NEAR_OVERLOAD = f"{_RPDU2}.6.1.1.6"  # + .phase index, amps
+OID_PHASE_OVERLOAD = f"{_RPDU2}.6.1.1.7"
+
+# Poll interval while a UPS runs on battery
+ON_BATTERY_SCAN_INTERVAL = 5
 
 # Enumerations (raw SNMP value -> state)
 RFC_BATTERY_STATUS = {1: "unknown", 2: "normal", 3: "low", 4: "depleted"}

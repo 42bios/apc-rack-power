@@ -9,7 +9,7 @@ from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .coordinator import ApcCoordinator, ApcSnapshot
+from .coordinator import ApcCoordinator, ApcSnapshot, ControlPoint
 
 
 class ApcEntity(CoordinatorEntity[ApcCoordinator]):
@@ -26,6 +26,29 @@ class ApcEntity(CoordinatorEntity[ApcCoordinator]):
     def snapshot(self) -> ApcSnapshot:
         """Latest data."""
         return self.coordinator.data
+
+    def _set_name_placeholders(self, **values: str) -> None:
+        """Update translation placeholders, e.g. after an outlet was renamed."""
+        self._attr_translation_placeholders = {**self._attr_translation_placeholders, **values}
+        # HA caches the formatted name; drop it so the new placeholder is used.
+        self.__dict__.pop("name", None)
+
+
+class ApcControlEntity(ApcEntity):
+    """An entity that belongs to one outlet or outlet group and follows its name."""
+
+    def __init__(self, coordinator: ApcCoordinator, key: str, control: ControlPoint) -> None:
+        super().__init__(coordinator, key, control.module)
+        self._control = control
+        self._attr_translation_placeholders = {"name": control.name, "index": control.index}
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        current = next((c for c in self.coordinator.controls if c.uid == self._control.uid), None)
+        if current is not None and current.name != self._control.name:
+            self._control = current
+            self._set_name_placeholders(name=current.name)
+        super()._handle_coordinator_update()
 
 
 def add_entities_when_found(

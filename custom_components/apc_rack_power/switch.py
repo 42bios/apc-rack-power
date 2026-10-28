@@ -14,7 +14,7 @@ from . import ApcConfigEntry
 from .const import DEVICE_UPS
 from .coordinator import ApcCoordinator, ApcSnapshot, ControlPoint
 from .device_profile import kind_matches
-from .entity import ApcEntity, add_entities_when_found
+from .entity import ApcControlEntity, add_entities_when_found
 
 PARALLEL_UPDATES = 1
 
@@ -35,22 +35,19 @@ async def async_setup_entry(
     add_entities_when_found(coordinator, async_add_entities, _build)
 
 
-class ApcControlSwitch(ApcEntity, SwitchEntity):
+class ApcControlSwitch(ApcControlEntity, SwitchEntity):
     """One outlet or outlet group."""
 
     _attr_device_class = SwitchDeviceClass.OUTLET
 
     def __init__(self, coordinator: ApcCoordinator, control: ControlPoint) -> None:
-        super().__init__(coordinator, control.uid, control.module)
-        self._control = control
-        name = control.name.strip()
+        super().__init__(coordinator, control.uid, control)
         if control.kind == DEVICE_UPS:
             self._attr_translation_key = "outlet_group"
-        elif name.lower().startswith("outlet "):
+        elif control.name.strip().lower().startswith("outlet "):
             self._attr_translation_key = "outlet_default"
         else:
             self._attr_translation_key = "outlet"
-        self._attr_translation_placeholders = {"name": name, "index": control.index}
 
     @property
     def is_on(self) -> bool | None:

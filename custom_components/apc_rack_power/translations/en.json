@@ -487,6 +487,24 @@
       },
       "custom_metric": {
         "name": "Custom {key}"
+      },
+      "ups_input_line_voltage": {
+        "name": "Input L{line} voltage"
+      },
+      "ups_input_line_current": {
+        "name": "Input L{line} current"
+      },
+      "ups_input_line_power": {
+        "name": "Input L{line} power"
+      },
+      "ups_output_line_voltage": {
+        "name": "Output L{line} voltage"
+      },
+      "ups_output_line_current": {
+        "name": "Output L{line} current"
+      },
+      "ups_output_line_power": {
+        "name": "Output L{line} power"
       }
     },
     "binary_sensor": {
@@ -568,6 +586,43 @@
       "outlet_group": {
         "name": "{name}"
       }
+    },
+    "text": {
+      "outlet_name": {
+        "name": "{name} name"
+      }
+    },
+    "number": {
+      "outlet_on_delay": {
+        "name": "{name} power-on delay"
+      },
+      "outlet_off_delay": {
+        "name": "{name} power-off delay"
+      },
+      "outlet_reboot_duration": {
+        "name": "{name} reboot duration"
+      },
+      "phase_near_overload_threshold": {
+        "name": "Phase {phase} near-overload threshold"
+      },
+      "phase_overload_threshold": {
+        "name": "Phase {phase} overload threshold"
+      },
+      "ups_low_battery_runtime": {
+        "name": "Low-battery runtime"
+      }
+    },
+    "event": {
+      "card_message": {
+        "name": "Card message",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "message": "Message"
+            }
+          }
+        }
+      }
     }
   },
   "exceptions": {
@@ -591,6 +646,9 @@
     },
     "unknown_control": {
       "message": "No outlet or outlet group with uid {control_uid}."
+    },
+    "not_writable": {
+      "message": "This setting cannot be changed on this device."
     }
   },
   "issues": {
@@ -643,6 +701,19 @@
           "description": "on, off or cycle (reboot)."
         }
       }
+    }
+  },
+  "device_automation": {
+    "trigger_type": {
+      "on_battery": "{entity_name} switched to battery",
+      "on_mains": "{entity_name} back on mains power",
+      "low_battery": "{entity_name} battery low",
+      "replace_battery": "{entity_name} needs a new battery",
+      "ups_overload": "{entity_name} overloaded",
+      "ups_alarm": "{entity_name} reports an alarm",
+      "pdu_overload": "{entity_name} overloaded",
+      "pdu_near_overload": "{entity_name} near overload",
+      "card_message": "{entity_name} sent a message"
     }
   }
 }

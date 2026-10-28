@@ -16,7 +16,9 @@ from pysnmp.hlapi.v3arch.asyncio import (
     Integer32,
     ObjectIdentity,
     ObjectType,
+    OctetString,
     SnmpEngine,
+    TimeTicks,
     Udp6TransportTarget,
     UdpTransportTarget,
     UsmUserData,
@@ -323,13 +325,24 @@ class ApcSnmpClient:
 
     async def set_integer(self, oid: str, value: int) -> None:
         """Write an integer value."""
+        await self._set(oid, Integer32(int(value)))
+
+    async def set_text(self, oid: str, value: str) -> None:
+        """Write a text value."""
+        await self._set(oid, OctetString(value))
+
+    async def set_timeticks(self, oid: str, ticks: int) -> None:
+        """Write a time value in hundredths of a second."""
+        await self._set(oid, TimeTicks(int(ticks)))
+
+    async def _set(self, oid: str, value: Any) -> None:
         target = await self._get_target()
         indication, status, _index, _var_binds = await set_cmd(
             self._engine,
             self._auth(write=True),
             target,
             ContextData(),
-            ObjectType(ObjectIdentity(_normalize(oid)), Integer32(int(value))),
+            ObjectType(ObjectIdentity(_normalize(oid)), value),
         )
         if indication:
             self._raise_indication(indication)
