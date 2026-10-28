@@ -26,6 +26,9 @@ Home Assistant custom integration for APC UPS and Rack PDU devices via SNMP (v1/
 - **SNMP traps (optional):** the card reports events immediately; Home Assistant polls at once and fires an `apc_rack_power_trap` event
 - **Setup:** DHCP discovery of APC cards, reconfigure (address, SNMP version, credentials), re-authentication, repair issues (battery replacement, rejected commands, trap port)
 - SNMPv1, SNMPv2c and SNMPv3 (MD5, SHA-1, SHA-224/256/384/512; DES, 3DES, AES-128/192/256)
+- **Outlet names and settings:** rename outlets and outlet groups on the device from Home Assistant; power-on/off delay, reboot duration, phase thresholds and the UPS low-battery runtime as (disabled by default) setting entities
+- **Card messages** as an event entity and **device triggers** in the automation editor (on battery, back on mains, low/replace battery, overload, alarm, card message)
+- Faster polling (every 5 s) while a UPS runs on battery
 - Custom OID polling for anything not covered
 
 ## Background
@@ -82,8 +85,9 @@ The integration reads the standard UPS-MIB (RFC 1628) and the APC PowerNet-MIB a
 
 | Device family | Tables used |
 |---|---|
-| Smart-UPS / Symmetra with NMC2 or NMC3 (AP9630/31/40/41 ...) | UPS-MIB, `upsBasic`/`upsAdv`/`upsHighPrec`, outlet groups, universal I/O probes |
+| Smart-UPS / Symmetra with NMC2 or NMC3 (AP9630/31/40/41 ...) | UPS-MIB (incl. per-line values of 3-phase units), `upsBasic`/`upsAdv`/`upsHighPrec`, outlet groups, universal I/O probes |
 | Switched/metered Rack PDU, current firmware (AP79xx, AP86xx, AP88xx, AP89xx) | `rPDU2` device, phases, banks, switched and metered outlets, sensor port |
+| Easy PDU (EPDU1xxx) | `ePDU` device, phases, switched outlets |
 | Rack PDU with older firmware | `rPDU` load and outlets, MasterSwitch `sPDU` outlets |
 | Older environmental monitors | integrated environmental monitor (`iem`), modular sensors (`mem`) |
 
