@@ -3,7 +3,7 @@
 [![CI](https://github.com/42bios/apc-rack-power/actions/workflows/ci.yml/badge.svg)](https://github.com/42bios/apc-rack-power/actions/workflows/ci.yml)
 [![HACS](https://github.com/42bios/apc-rack-power/actions/workflows/hacs-validate.yml/badge.svg)](https://github.com/42bios/apc-rack-power/actions/workflows/hacs-validate.yml)
 [![Hassfest](https://github.com/42bios/apc-rack-power/actions/workflows/hassfest.yml/badge.svg)](https://github.com/42bios/apc-rack-power/actions/workflows/hassfest.yml)
-![HACS Custom](https://img.shields.io/badge/HACS-Custom-blue)
+[![HACS Default](https://img.shields.io/badge/HACS-Default-41BDF5)](https://hacs.xyz/)
 [![Release](https://img.shields.io/github/v/release/42bios/apc-rack-power?color=blue)](https://github.com/42bios/apc-rack-power/releases)
 
 Home Assistant custom integration for APC UPS and Rack PDU devices via SNMP (v1/v2c/v3).
@@ -42,15 +42,15 @@ The design goal is simple:
 
 ## HACS Installation (Recommended)
 
-1. Open HACS in Home Assistant.
-2. Go to `Integrations`.
-3. Open menu (three dots) -> `Custom repositories`.
-4. Repository URL: `https://github.com/42bios/apc-rack-power`
-5. Category: `Integration`
-6. Install `APC Rack Power` and restart Home Assistant.
-7. Add integration in `Settings -> Devices & Services -> Add Integration`.
+APC Rack Power is available in the HACS default repository.
+
+1. Open HACS in Home Assistant and search for `APC Rack Power` (or use the `Open in HACS` button at the top).
+2. Download it and restart Home Assistant.
+3. Add integration in `Settings -> Devices & Services -> Add Integration`.
 
 Requires Home Assistant 2025.7 or newer.
+
+If the integration does not show up in the search (e.g. an older HACS version), add `https://github.com/42bios/apc-rack-power` as a custom repository of type `Integration` via the HACS menu (three dots) -> `Custom repositories`.
 
 ## Manual Installation
 1. Copy `custom_components/apc_rack_power` into your Home Assistant config folder.
