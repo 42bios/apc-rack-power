@@ -99,7 +99,7 @@ The integration reads the standard UPS-MIB (RFC 1628) and the APC PowerNet-MIB a
 Other models are covered by the same MIB tables but not tested yet. Diagnostics downloads (credentials and serial numbers are redacted) help to add support for them.
 
 ## Provided Services
-- `apc_rack_power.set_oid`: write an integer to any writable OID
+- `apc_rack_power.set_oid`: write a value (integer, text or time ticks) to any writable OID
 - `apc_rack_power.control_action`: switch an outlet or outlet group on/off or reboot it
 
 ## Upgrading from 0.3.x

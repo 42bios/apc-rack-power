@@ -12,8 +12,17 @@ set_oid:
     value:
       required: true
       selector:
-        number:
-          mode: box
+        text:
+    type:
+      required: false
+      default: integer
+      selector:
+        select:
+          translation_key: set_oid_type
+          options:
+            - integer
+            - text
+            - timeticks
 
 control_action:
   fields:

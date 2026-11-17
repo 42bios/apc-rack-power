@@ -122,6 +122,13 @@
     }
   },
   "selector": {
+    "set_oid_type": {
+      "options": {
+        "integer": "Ganzzahl",
+        "text": "Text",
+        "timeticks": "Timeticks"
+      }
+    },
     "snmp_version": {
       "options": {
         "v3": "SNMPv3 (empfohlen)",
@@ -668,7 +675,7 @@
   "services": {
     "set_oid": {
       "name": "SNMP-OID setzen",
-      "description": "Schreibt eine Ganzzahl in eine beschreibbare OID des Geräts.",
+      "description": "Schreibt einen Wert in eine beschreibbare OID des Geräts.",
       "fields": {
         "entry_id": {
           "name": "Gerät",
@@ -680,7 +687,11 @@
         },
         "value": {
           "name": "Wert",
-          "description": "Zu schreibende Ganzzahl."
+          "description": "Zu schreibender Wert."
+        },
+        "type": {
+          "name": "Typ",
+          "description": "SNMP-Typ des Werts. Timeticks sind Hundertstelsekunden."
         }
       }
     },

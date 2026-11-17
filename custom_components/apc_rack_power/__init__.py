@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST
@@ -57,12 +58,29 @@ type ApcConfigEntry = ConfigEntry[ApcCoordinator]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
-SET_OID_SCHEMA = vol.Schema(
-    {
-        vol.Required("entry_id"): cv.string,
-        vol.Required("oid"): cv.string,
-        vol.Required("value"): vol.Coerce(int),
-    }
+SET_OID_TYPES = ["integer", "text", "timeticks"]
+
+
+def _coerce_set_oid_value(data: dict[str, Any]) -> dict[str, Any]:
+    """Text is written as given; the other types need a whole number."""
+    if data["type"] == "text":
+        return {**data, "value": str(data["value"])}
+    try:
+        return {**data, "value": int(data["value"])}
+    except (TypeError, ValueError) as err:
+        raise vol.Invalid(f"value must be an integer for type {data['type']}", path=["value"]) from err
+
+
+SET_OID_SCHEMA = vol.All(
+    vol.Schema(
+        {
+            vol.Required("entry_id"): cv.string,
+            vol.Required("oid"): cv.string,
+            vol.Required("value"): vol.Any(int, float, cv.string),
+            vol.Optional("type", default="integer"): vol.In(SET_OID_TYPES),
+        }
+    ),
+    _coerce_set_oid_value,
 )
 
 CONTROL_ACTION_SCHEMA = vol.Schema(
@@ -120,7 +138,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
 
     async def _handle_set_oid(call: ServiceCall) -> None:
         coordinator = _get_coordinator(hass, call.data["entry_id"])
-        await coordinator.async_write(call.data["oid"], int(call.data["value"]))
+        await coordinator.async_write(call.data["oid"], call.data["value"], call.data["type"])
 
     async def _handle_control_action(call: ServiceCall) -> None:
         coordinator = _get_coordinator(hass, call.data["entry_id"])

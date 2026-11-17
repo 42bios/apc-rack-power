@@ -122,6 +122,13 @@
     }
   },
   "selector": {
+    "set_oid_type": {
+      "options": {
+        "integer": "Integer",
+        "text": "Text",
+        "timeticks": "Time ticks"
+      }
+    },
     "snmp_version": {
       "options": {
         "v3": "SNMPv3 (recommended)",
@@ -668,7 +675,7 @@
   "services": {
     "set_oid": {
       "name": "Set SNMP OID",
-      "description": "Writes an integer value to a writable OID of the device.",
+      "description": "Writes a value to a writable OID of the device.",
       "fields": {
         "entry_id": {
           "name": "Device",
@@ -680,7 +687,11 @@
         },
         "value": {
           "name": "Value",
-          "description": "Integer value to write."
+          "description": "Value to write."
+        },
+        "type": {
+          "name": "Type",
+          "description": "SNMP type of the value. Time ticks are hundredths of a second."
         }
       }
     },
