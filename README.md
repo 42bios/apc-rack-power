@@ -3,6 +3,7 @@
 [![CI](https://github.com/42bios/apc-rack-power/actions/workflows/ci.yml/badge.svg)](https://github.com/42bios/apc-rack-power/actions/workflows/ci.yml)
 [![HACS](https://github.com/42bios/apc-rack-power/actions/workflows/hacs-validate.yml/badge.svg)](https://github.com/42bios/apc-rack-power/actions/workflows/hacs-validate.yml)
 [![Hassfest](https://github.com/42bios/apc-rack-power/actions/workflows/hassfest.yml/badge.svg)](https://github.com/42bios/apc-rack-power/actions/workflows/hassfest.yml)
+[![Marketplace](https://img.shields.io/badge/Home%20Assistant-Marketplace-41BDF5)](https://my.home-assistant.io/redirect/hacs_repository/?owner=42bios&repository=apc-rack-power&category=integration)
 [![Release](https://img.shields.io/github/v/release/42bios/apc-rack-power?color=blue)](https://github.com/42bios/apc-rack-power/releases)
 
 Home Assistant custom integration for APC UPS and Rack PDU devices via SNMP (v1/v2c/v3).
@@ -24,18 +25,16 @@ Home Assistant custom integration for APC UPS and Rack PDU devices via SNMP (v1/
 
 Requires Home Assistant 2025.7 or newer.
 
+[![Open your Home Assistant instance and open this repository in the Marketplace.](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=42bios&repository=apc-rack-power&category=integration)
+
+The button opens the Marketplace on Home Assistant 2026.11 or newer, and HACS on older versions.
+
 ### Marketplace (Home Assistant 2026.11 or newer)
-
-[![Open your Home Assistant instance and open a repository in the Marketplace.](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=42bios&repository=apc-rack-power&category=integration)
-
-1. Use the button, or open `Settings -> Marketplace` and search for `APC Rack Power`.
+1. Open `Settings -> Marketplace` and search for `APC Rack Power`.
 2. Install it.
 
 ### HACS (older Home Assistant versions)
-
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=42bios&repository=apc-rack-power&category=integration)
-
-1. Use the button, or open HACS and search for `APC Rack Power`.
+1. Open HACS and search for `APC Rack Power`.
 2. Download it and restart Home Assistant.
 
 ### Manual
