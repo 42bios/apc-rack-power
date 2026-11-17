@@ -9,6 +9,7 @@ configured devices, fires an event and triggers an immediate poll.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
 import logging
@@ -28,6 +29,7 @@ from .snmp_client import AUTH_PROTOCOL_MAP, PRIV_PROTOCOL_MAP, SnmpCredentials, 
 _LOGGER = logging.getLogger(__name__)
 
 DATA_TRAP_SERVERS = f"{DOMAIN}_trap_servers"
+DATA_TRAP_LOCK = f"{DOMAIN}_trap_lock"
 
 SNMP_TRAP_OID = "1.3.6.1.6.3.1.1.4.1.0"
 SYS_UPTIME = "1.3.6.1.2.1.1.3.0"
@@ -181,20 +183,26 @@ async def async_register_trap_handler(
 
     Raises OSError when the port cannot be opened.
     """
-    servers: dict[int, TrapServer] = hass.data.setdefault(DATA_TRAP_SERVERS, {})
-    server = servers.get(port)
-    if server is None:
-        server = TrapServer(port)
-        await server.async_start(hass)
-        servers[port] = server
-
     addresses = {host}
     try:
         infos = await hass.loop.getaddrinfo(host, None, family=socket.AF_INET)
         addresses.update(info[4][0] for info in infos)
     except OSError:
         _LOGGER.debug("Cannot resolve %s for trap matching", host)
-    server.register(entry_id, addresses, handler, community, credentials, engine_id)
+
+    servers: dict[int, TrapServer] = hass.data.setdefault(DATA_TRAP_SERVERS, {})
+    # Entries are set up concurrently: without the lock a second entry would
+    # not see the server that is still starting and try to bind the port again.
+    lock: asyncio.Lock = hass.data.setdefault(DATA_TRAP_LOCK, asyncio.Lock())
+    async with lock:
+        server = servers.get(port)
+        if server is None:
+            server = TrapServer(port)
+            await server.async_start(hass)
+            servers[port] = server
+        # Registered before the lock is released, so that another entry's
+        # unload cannot stop the server in between.
+        server.register(entry_id, addresses, handler, community, credentials, engine_id)
 
     @callback
     def _unregister() -> None:

@@ -28,7 +28,13 @@ from pytest_homeassistant_custom_component.typing import ClientSessionGenerator
 
 from custom_components.apc_rack_power.const import EVENT_TRAP
 from custom_components.apc_rack_power.snmp_client import SnmpCredentials
-from custom_components.apc_rack_power.traps import TrapInfo, TrapServer, engine_id_bytes
+from custom_components.apc_rack_power.traps import (
+    DATA_TRAP_SERVERS,
+    TrapInfo,
+    TrapServer,
+    async_register_trap_handler,
+    engine_id_bytes,
+)
 
 from .conftest import FakeAgent, make_entry
 
@@ -146,3 +152,25 @@ async def test_diagnostics_redacts_credentials(
     assert result["metrics"]["ups_output_power"] == 228
     assert "public" not in str(result)
     assert "private" not in str(result)
+
+
+async def test_concurrent_registration_shares_one_server(hass: HomeAssistant, socket_enabled: None) -> None:
+    """Entries starting at the same time must not both try to bind the trap port."""
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        probe.bind(("0.0.0.0", 0))
+        port = probe.getsockname()[1]
+
+    unregister = await asyncio.gather(
+        *(
+            async_register_trap_handler(hass, f"entry{number}", "127.0.0.1", port, "public", lambda trap: None)
+            for number in range(3)
+        )
+    )
+    servers = hass.data[DATA_TRAP_SERVERS]
+    assert list(servers) == [port]
+
+    for remove in unregister[:-1]:
+        remove()
+    assert list(servers) == [port]
+    unregister[-1]()
+    assert servers == {}
