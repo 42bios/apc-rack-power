@@ -9,6 +9,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import issue_registry as ir
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
+import voluptuous as vol
 
 from custom_components.apc_rack_power.const import DOMAIN
 from custom_components.apc_rack_power.snmp_client import ApcSnmpAuthError, ApcSnmpError
@@ -260,3 +261,21 @@ async def test_nps_guest_pdu_gets_own_device(hass: HomeAssistant, agent: FakeAge
     assert _state(hass, "sensor.pdu_rack_b_power") == "500"
     assert _state(hass, "sensor.pdu_rack_b_phase_current") == "3.7"
     assert len(hass.states.async_all("switch")) == 48
+
+
+async def test_set_oid_service_types(hass: HomeAssistant, agent: FakeAgent) -> None:
+    """set_oid writes integers by default and text or time ticks on request."""
+    agent.use("ups")
+    entry = make_entry("UPS")
+    await _setup(hass, entry)
+    oid = "1.3.6.1.4.1.318.9.9.9.0"
+    call = {"entry_id": entry.entry_id, "oid": f".{oid}"}
+
+    await hass.services.async_call(DOMAIN, "set_oid", {**call, "value": 2}, blocking=True)
+    await hass.services.async_call(DOMAIN, "set_oid", {**call, "value": "7"}, blocking=True)
+    await hass.services.async_call(DOMAIN, "set_oid", {**call, "value": "007", "type": "text"}, blocking=True)
+    await hass.services.async_call(DOMAIN, "set_oid", {**call, "value": "500", "type": "timeticks"}, blocking=True)
+    assert agent.writes == [(oid, 2), (oid, 7), (oid, "007"), (oid, 500)]
+
+    with pytest.raises(vol.Invalid):
+        await hass.services.async_call(DOMAIN, "set_oid", {**call, "value": "abc"}, blocking=True)

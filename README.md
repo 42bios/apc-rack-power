@@ -3,63 +3,51 @@
 [![CI](https://github.com/42bios/apc-rack-power/actions/workflows/ci.yml/badge.svg)](https://github.com/42bios/apc-rack-power/actions/workflows/ci.yml)
 [![HACS](https://github.com/42bios/apc-rack-power/actions/workflows/hacs-validate.yml/badge.svg)](https://github.com/42bios/apc-rack-power/actions/workflows/hacs-validate.yml)
 [![Hassfest](https://github.com/42bios/apc-rack-power/actions/workflows/hassfest.yml/badge.svg)](https://github.com/42bios/apc-rack-power/actions/workflows/hassfest.yml)
-[![HACS Default](https://img.shields.io/badge/HACS-Default-41BDF5)](https://hacs.xyz/)
 [![Release](https://img.shields.io/github/v/release/42bios/apc-rack-power?color=blue)](https://github.com/42bios/apc-rack-power/releases)
 
 Home Assistant custom integration for APC UPS and Rack PDU devices via SNMP (v1/v2c/v3).
 
 <img src="https://raw.githubusercontent.com/42bios/apc-rack-power/main/custom_components/apc_rack_power/brand/logo.png" alt="APC Rack Power Logo" width="160">
 
-[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=42bios&repository=apc-rack-power&category=integration)
-
 > **Disclaimer:** This is an unofficial, community-maintained integration and is not affiliated with, endorsed by, or supported by APC or Schneider Electric. All product names, logos, and brands are property of their respective owners and are used for identification purposes only.
 
 ## Highlights
-- One integration for APC UPS and Rack PDU devices with a Network Management Card (NMC)
-- Automatic detection of the device type; only entities the device actually supports are created
-- **UPS:** battery, runtime, input/output, output power (W/VA), energy counter (kWh) for the Energy dashboard, last transfer cause, battery install/replacement dates, external battery packs, self test and runtime calibration results
-- **UPS binary sensors:** on battery, low battery, replace battery, overload, bypass, alarm, self test running
-- **UPS controls:** start self test, start/cancel runtime calibration, flash and beep, alarm beeper mode, outlet groups on/off/reboot
-- **Rack PDU:** power, apparent power, energy, load and load state, phases and banks with their warning/overload thresholds, per-outlet metering on metered-by-outlet models
-- **PDU controls:** outlets on/off and reboot (off and on again with the delay configured on the PDU)
-- **Temperature/humidity probes** (AP9335T/TH and similar) on rPDU2 sensor ports, NMC2/NMC3 universal I/O ports and older environmental monitors
-- **SNMP traps (optional):** the card reports events immediately; Home Assistant polls at once and fires an `apc_rack_power_trap` event
-- **Setup:** DHCP discovery of APC cards, reconfigure (address, SNMP version, credentials), re-authentication, repair issues (battery replacement, rejected commands, trap port)
-- SNMPv1, SNMPv2c and SNMPv3 (MD5, SHA-1, SHA-224/256/384/512; DES, 3DES, AES-128/192/256)
-- **Outlet names and settings:** rename outlets and outlet groups on the device from Home Assistant; power-on/off delay, reboot duration, phase thresholds and the UPS low-battery runtime as (disabled by default) setting entities
-- **Card messages** as an event entity and **device triggers** in the automation editor (on battery, back on mains, low/replace battery, overload, alarm, card message)
-- Faster polling (every 5 s) while a UPS runs on battery
-- Custom OID polling for anything not covered
+- **One integration for UPS and Rack PDU** with a Network Management Card (NMC). The device type is detected automatically and only entities the device supports are created.
+- **UPS:** battery, runtime, input/output, power and energy (Energy dashboard), alarms, self test and runtime calibration, outlet groups on/off/reboot.
+- **Rack PDU:** power, energy, load, phases and banks with thresholds, per-outlet metering, outlets on/off/reboot, chained PDUs as own devices.
+- **Temperature/humidity probes** on the card, the PDU sensor port and older environmental monitors.
+- **SNMP traps (optional):** the card reports events immediately, as an event entity, as device triggers and as an `apc_rack_power_trap` event.
+- **SNMPv1, v2c and v3**, DHCP discovery, reconfigure, re-authentication and repair issues.
+- **Settings on the device:** outlet names, power-on/off delays, reboot duration and thresholds as entities (disabled by default); custom OIDs for anything not covered.
 
-## Background
-APC Rack Power was created to provide one practical integration for mixed APC installations where both UPS and Rack PDU devices are present.
-
-The design goal is simple:
-- Keep setup easy
-- Read as much useful local data as possible
-- Expose control points only where they actually exist
-- Stay vendor-focused and reliable for APC SNMP implementations
-
-## HACS Installation (Recommended)
-
-APC Rack Power is available in the HACS default repository.
-
-1. Open HACS in Home Assistant and search for `APC Rack Power` (or use the `Open in HACS` button at the top).
-2. Download it and restart Home Assistant.
-3. Add integration in `Settings -> Devices & Services -> Add Integration`.
+## Installation
 
 Requires Home Assistant 2025.7 or newer.
 
-If the integration does not show up in the search (e.g. an older HACS version), add `https://github.com/42bios/apc-rack-power` as a custom repository of type `Integration` via the HACS menu (three dots) -> `Custom repositories`.
+### Marketplace (Home Assistant 2026.11 or newer)
 
-## Manual Installation
-1. Copy `custom_components/apc_rack_power` into your Home Assistant config folder.
+[![Open your Home Assistant instance and open a repository in the Marketplace.](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=42bios&repository=apc-rack-power&category=integration)
+
+1. Use the button, or open `Settings -> Marketplace` and search for `APC Rack Power`.
+2. Install it.
+
+### HACS (older Home Assistant versions)
+
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=42bios&repository=apc-rack-power&category=integration)
+
+1. Use the button, or open HACS and search for `APC Rack Power`.
+2. Download it and restart Home Assistant.
+
+### Manual
+1. Copy `custom_components/apc_rack_power` into the `custom_components` folder of your Home Assistant configuration.
 2. Restart Home Assistant.
-3. Add integration in `Settings -> Devices & Services -> Add Integration`.
 
 ## Setup
+
+[![Open your Home Assistant instance and start setting up a new integration.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=apc_rack_power)
+
 1. Enable SNMP on the network card (`Configuration -> Network -> SNMPv3` or `SNMPv1`) and allow the Home Assistant host in the card's access control list.
-2. Add the integration, enter the address and choose the SNMP version.
+2. Add the integration under `Settings -> Devices & Services -> Add Integration`, enter the address and choose the SNMP version.
 3. Enter the credentials:
    - **SNMPv3 (recommended):** user name, authentication and privacy protocol with their passphrases. They must match the user configured on the card.
    - **SNMPv1/v2c:** read community and, for switching and tests, a write community.
@@ -99,22 +87,11 @@ The integration reads the standard UPS-MIB (RFC 1628) and the APC PowerNet-MIB a
 Other models are covered by the same MIB tables but not tested yet. Diagnostics downloads (credentials and serial numbers are redacted) help to add support for them.
 
 ## Provided Services
-- `apc_rack_power.set_oid`: write an integer to any writable OID
+- `apc_rack_power.set_oid`: write a value (integer, text or time ticks) to any writable OID
 - `apc_rack_power.control_action`: switch an outlet or outlet group on/off or reboot it
 
-## Upgrading from 0.3.x
-- Credentials move from the options into the entry automatically; change them via `Reconfigure`.
-- Battery status, output source and self test result are now text states (for example `normal`, `battery`, `passed`) instead of numbers. Update automations or templates that compared the numbers.
-- PDU values that were wrong before are fixed: outlet states, phase current and power, PDU load.
-- The options "PDU nominal watts" and "Temperature scale" are gone: power is read from the PDU, and temperatures are reported in °C and converted by Home Assistant.
-
-## Repository Layout
-- `custom_components/apc_rack_power` - integration source
-- `tests` - pytest suite with anonymised SNMP walks of the tested devices
-- `hacs.json` - HACS metadata
-- `.github/workflows/hacs-validate.yml` - HACS validation workflow
-- `.github/workflows/hassfest.yml` - Home Assistant hassfest checks
-- `.github/workflows/ci.yml` - lint and tests
+## Upgrading
+See the [release notes](https://github.com/42bios/apc-rack-power/releases) for what changed. Coming from 0.3.x, read the upgrade notes of [0.4.0](https://github.com/42bios/apc-rack-power/releases/tag/v0.4.0) first.
 
 ## Support
 
@@ -130,4 +107,3 @@ Other models are covered by the same MIB tables but not tested yet. Diagnostics 
 
 ## License
 MIT - see [LICENSE](LICENSE).
-
